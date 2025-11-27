@@ -40,15 +40,14 @@ jobs:
 
       - name: Set correct permissions on server
         run: |
-          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
-          "find ${{ secrets.PRODUCTION_PATH }} -type f -exec chmod 644 {} \; && \
-           find ${{ secrets.PRODUCTION_PATH }} -type d -exec chmod 755 {} \;"
+          ssh -i ~/.ssh/deploy_key -p ${{ secrets.SSH_PORT }} \
+            ${{ secrets.SSH_USERNAME }}@${{ secrets.SSH_HOST }} \
+            "find ${{ secrets.PRODUCTION_PATH }} -type f -exec chmod 644 {} \; && \
+             find ${{ secrets.PRODUCTION_PATH }} -type d -exec chmod 755 {} \;"
 
       - name: Clean up
         if: always()
         run: rm -f ~/.ssh/deploy_key
 
       - name: Deployment Success
-        run: |
-          echo "✅ Successfully deployed to PRODUCTION"
-          echo "🌐 Site:https://nobody-exists-on-purpose.pawnhub.fun/"
+        run: echo "✅ Successfully deployed to PRODUCTION"
