@@ -28,7 +28,8 @@ export const GAME_CONFIG = {
         COLORS: {
             NODE_CORE: '#00FFFF', // Cyan
             NODE_RING_1: 'rgba(0, 255, 255, 0.3)',
-            NODE_RING_2: 'rgba(255, 0, 255, 0.3)',
+            NODE_RING_1: 'rgba(0, 255, 255, 0.3)',
+            NODE_RING_2: 'rgba(0, 255, 128, 0.3)', // ROOT CAUSE FIX: Changed from Magenta to Sea Green
             CONNECTION_FLOW: '#00FF00',
             CONNECTION_STAGNANT: '#004400',
         },

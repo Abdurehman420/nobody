@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { eventBus, EVENT_TYPES } from '../systems/EventBus';
-import { audioManager } from '../engine/audio';
+import { audioSynthesizer } from '../systems/AudioSynthesizer';
 
 const BackseatGamer = () => {
     const [isVisible, setIsVisible] = useState(false);
@@ -34,7 +34,7 @@ const BackseatGamer = () => {
                 const x = Math.random() * window.innerWidth;
                 const y = Math.random() * window.innerHeight;
                 setPingPos({ x, y });
-                audioManager.playSound('ui_click'); // Placeholder for ping sound
+                audioSynthesizer.playMechanicalClick(); // ui_click replacement
 
                 setTimeout(() => setPingPos(null), 1000);
             }

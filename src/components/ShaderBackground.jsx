@@ -90,7 +90,9 @@ const ShaderBackground = ({ flux, nodeCount, stockPhotoInvasionActive }) => {
             gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
 
             // Dynamic Intensity
-            const intensity = Math.min(propsRef.current.flux / 1000 + propsRef.current.nodeCount / 50, 5.0);
+            // ROOT CAUSE FIX: Drastically increased divisors for "way way way way less reactive" background
+            const intensity = Math.min(propsRef.current.flux / 100000 + propsRef.current.nodeCount / 500, 5.0);
+
             gl.uniform1f(intensityLocation, intensity);
 
             gl.drawArrays(gl.TRIANGLES, 0, 6);

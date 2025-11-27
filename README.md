@@ -61,11 +61,19 @@ This game is packed with "features" designed to troll, confuse, or mildly inconv
 *   **Procedural Soundtrack:** Generative ambient music that evolves with your network.
 *   **ASMR Mode:** "Dump and Pleasant" sound design. Low-frequency thuds, warm hums, and zero high-pitched beeps.
 *   **Audio Ducking:** The music politely lowers its volume when Gary speaks (or when you step on a wet floor).
+*   **Interdimensional Radio:** A fully functional radio widget featuring:
+    *   **Real Streams:** Direct integration with **Radio Garden** and **SomaFM** (Space Station, Drone Zone, etc.).
+    *   **Synth Stations:** Procedurally generated stations (Pink Noise, Brown Noise) for pure focus.
+    *   **Independent Volume:** Listen to the radio even when the main game is muted.
+    *   **"Space?" Station:** Now fixed and broadcasting from the void.
+    *   **Pyongyang FM:** Yes, you can stream the only and official North Korean radio station in-game. Don't ask why.
 
 ## 🛠 Technical Details
 *   **Custom Engine:** Built from scratch in React + Canvas API.
 *   **No Libraries:** (Almost) zero dependencies. Physics, particles, and audio synthesis are all hand-rolled.
-*   **Spaghetti Code:** Intentionally authentic.
+*   **Robust Physics:** Fluid simulation now includes a "Warm-Up" phase on load to ensure instant pressure propagation, plus NaN safety checks and case-insensitive node handling.
+*   **Save System:** Auto-saves every 5 seconds and immediately upon tab closure. Your progress is safe from the void.
+*   **Spaghetti Code:** Intentionally authentic. (Gary's eye-tracking is now throttled to prevent recursive crashes, because even spaghetti has limits).
 
 ---
 

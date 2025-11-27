@@ -19,6 +19,8 @@ class JuiceIntegration {
         this.comboTimeout = null;
         this.lastInputTime = 0; // Will be set on init
         this.idleCheckInterval = 10000; // Check idle every 10s
+        this.isIdle = false;
+        this.wasFeverActive = false;
     }
 
     /**
@@ -50,9 +52,10 @@ class JuiceIntegration {
     }
 
     /**
-     * Update all juice systems (called every tick)
+     * Update all juice systems state (called every tick in reducer)
+     * MUST BE PURE - NO SIDE EFFECTS
      */
-    update(gameState, deltaTime) {
+    updateState(gameState, deltaTime) {
         if (!this.isInitialized) return gameState;
 
         let newState = { ...gameState };
@@ -73,10 +76,6 @@ class JuiceIntegration {
 
         // Update Repair Bots
         repairBotManager.update(deltaTime, gameState.nodes);
-
-        // Update Audio Drone
-        const fluxIntensity = Math.min(gameState.resources.flux / 1000, 1.0);
-        audioSynthesizer.updateDrone(fluxIntensity, gameState.nodes.length);
 
         // Spawn Confetti if in Fever Mode
         if (feverMode.shouldSpawnConfetti()) {
@@ -108,6 +107,35 @@ class JuiceIntegration {
         };
 
         return newState;
+    }
+
+    /**
+     * Perform side effects (Audio, Events, etc.)
+     * Call this OUTSIDE the reducer (e.g. in useGameLoop or useEffect)
+     */
+    performSideEffects(gameState) {
+        if (!this.isInitialized) return;
+
+        // Update Audio Drone & Master Volume
+        const fluxIntensity = Math.min(gameState.resources.flux / 1000, 1.0);
+        const masterVolume = gameState.masterVolume !== undefined ? gameState.masterVolume : 0.5;
+
+        // Ensure master gain is updated (controls Pink Noise, Arpeggios, etc.)
+        audioSynthesizer.setMasterVolume(masterVolume);
+
+        // Update Drone (specific modulation)
+        audioSynthesizer.updateDrone(fluxIntensity, gameState.nodes.length, masterVolume);
+
+        // Check for Idle
+        this.checkIdle();
+
+        // Handle Fever Mode Side Effects (Transition Logic)
+        if (feverMode.isActive && !this.wasFeverActive) {
+            feverMode.triggerActivationEffects();
+        } else if (!feverMode.isActive && this.wasFeverActive) {
+            feverMode.triggerDeactivationEffects();
+        }
+        this.wasFeverActive = feverMode.isActive;
     }
 
     /**
@@ -167,8 +195,14 @@ class JuiceIntegration {
      */
     checkIdle() {
         const idleTime = Date.now() - this.lastInputTime;
-        if (idleTime > 30000) { // 30 seconds
+        const isIdle = idleTime > 30000; // 30 seconds
+
+        if (isIdle && !this.isIdle) {
+            this.isIdle = true;
             eventBus.emit(EVENT_TYPES.PLAYER_IDLE, { idleTime });
+        } else if (!isIdle && this.isIdle) {
+            this.isIdle = false;
+            // Optional: Emit PLAYER_ACTIVE
         }
     }
 

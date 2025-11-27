@@ -25,15 +25,15 @@ export function useCRTWindow(isOpen, config = { preset: 'WOBBLY' }) {
     // Manage visibility (don't unmount immediately on close)
     useEffect(() => {
         if (isOpen) {
-            setIsVisible(true);
+            if (!isVisible) setIsVisible(true);
             // Trigger flash effect
             setFlashOpacity(1);
             setTimeout(() => setFlashOpacity(0), 150); // Flash duration
         } else if (!isOpen && scale < 0.01) {
             // Hide after animation completes
-            setIsVisible(false);
+            if (isVisible) setIsVisible(false);
         }
-    }, [isOpen, scale]);
+    }, [isOpen, scale, isVisible]);
 
     return {
         scale,
@@ -53,7 +53,7 @@ export function useCRTWindow(isOpen, config = { preset: 'WOBBLY' }) {
             left: 0,
             width: '100%',
             height: '100%',
-            background: 'rgba(255, 255, 255, 0.8)',
+            background: 'rgba(255, 255, 255, 0.2)',
             opacity: flashOpacity,
             transition: 'opacity 0.15s ease-out',
             pointerEvents: 'none',

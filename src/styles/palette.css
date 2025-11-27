@@ -1,20 +1,27 @@
 :root {
   /* The Palette of Cosmic Garbage */
   --color-portal-green: #00FF00;
-  --color-space-purple: #0a0014; /* Deep void */
-  --color-plumbus-pink: #ff99cc; /* Flesh-like */
-  --color-skin-tone: #ffe0bd; /* Uncomfortably biological UI */
-  
+  --color-space-purple: #000000;
+  /* ROOT CAUSE FIX: Changed from #0a0014 (purple) to Black */
+  --color-plumbus-pink: #ff99cc;
+  /* Flesh-like */
+  --color-skin-tone: #ffe0bd;
+  /* Uncomfortably biological UI */
+
   /* Resources */
-  --color-stardust: #32cd32; /* Glowing green crystals */
-  --color-flux: #00ffff; /* Electric blue */
-  --color-lucidity: #9400d3; /* Purple goo */
+  --color-stardust: #32cd32;
+  /* Glowing green crystals */
+  --color-flux: #00ffff;
+  /* Electric blue */
+  --color-lucidity: #9400d3;
+  /* Purple goo */
 
   /* UI & Text */
   --color-text-main: #00ff00;
   --color-text-error: #ff0000;
-  --font-main: 'Courier New', Courier, monospace; /* Jagged sci-fi readout */
-  
+  --font-main: 'Courier New', Courier, monospace;
+  /* Jagged sci-fi readout */
+
   /* Effects */
   --glow-green: 0 0 10px #00ff00, 0 0 20px #00ff00;
   --border-hologram: 1px solid #00ff00;
@@ -25,7 +32,8 @@ body {
   color: var(--color-text-main);
   font-family: var(--font-main);
   margin: 0;
-  overflow: hidden; /* The universe moves, not the scrollbar */
+  overflow: hidden;
+  /* The universe moves, not the scrollbar */
   width: 100vw;
   height: 100vh;
 }

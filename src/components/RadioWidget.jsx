@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useGame } from '../context/GameContext'; // Import useGame
+import { useGame } from '../context/GameContext';
 import { eventBus } from '../systems/EventBus';
-import { audioManager } from '../engine/audio'; // Import audioManager
+import { audioSynthesizer } from '../systems/AudioSynthesizer';
 import SquishyButton from './SquishyButton';
 import WobbleText from './WobbleText';
 
@@ -13,15 +13,29 @@ import WobbleText from './WobbleText';
  */
 
 const STATIONS = [
-    { freq: '108.7', name: 'VOID FM', vibe: 'Existential jazz for the damned' },
-    { freq: '666.6', name: 'FLESH RADIO', vibe: 'Throbbing meat beats' },
-    { freq: '404.0', name: 'NOT FOUND', vibe: 'Static and regret' },
-    { freq: '∞', name: 'THE SPIRAL', vibe: 'Infinite descent muzak' },
-    { freq: '0.00', name: 'NULL WAVE', vibe: 'The sound of nothing happening' },
-    { freq: 'π', name: 'IRRATIONAL PULSE', vibe: 'Numbers that never end' },
-    { freq: '13.13', name: 'BUREAUCRAT LOUNGE', vibe: 'Paperwork ambience' },
-    { freq: '99.9', name: 'FEVER DREAM', vibe: 'Your neurons are on fire' },
-    { freq: '42.0', name: 'GARY\'S MIXTAPE', vibe: 'Lo-Fi Hip Hop to study/exist to' },
+    // Original Synth Stations
+    { freq: '108.7', name: 'VOID FM', vibe: 'Existential jazz for the damned', type: 'synth', config: { freq: 108.7, type: 'sine', detune: -100 } },
+    { freq: '666.6', name: 'FLESH RADIO', vibe: 'Throbbing meat beats', type: 'synth', config: { freq: 666.6, type: 'sawtooth', detune: 50 } },
+    { freq: '404.0', name: 'NOT FOUND', vibe: 'Static and regret', type: 'synth', config: { freq: 404.0, type: 'square', detune: 0 } },
+    { freq: '∞', name: 'THE SPIRAL', vibe: 'Infinite descent muzak', type: 'synth', config: { freq: 440, type: 'triangle', detune: 200 } },
+    { freq: '0.00', name: 'NULL WAVE', vibe: 'The sound of nothing happening', type: 'synth', config: { freq: 261.63, type: 'sine', detune: -50 } },
+    { freq: 'π', name: 'IRRATIONAL PULSE', vibe: 'Numbers that never end', type: 'synth', config: { freq: 314.159, type: 'sawtooth', detune: 100 } },
+    { freq: '13.13', name: 'BUREAUCRAT LOUNGE', vibe: 'Paperwork ambience', type: 'synth', config: { freq: 220, type: 'square', detune: -25 } },
+    { freq: '99.9', name: 'FEVER DREAM', vibe: 'Your neurons are on fire', type: 'synth', config: { freq: 523.25, type: 'triangle', detune: 150 } },
+    { freq: '42.0', name: 'GARY\'S MIXTAPE', vibe: 'Lo-Fi Hip Hop to study/exist to', type: 'synth', config: { freq: 150, type: 'sine', detune: 10 } },
+
+    // Internet Radio Stations
+    { freq: 'REAL', name: 'Real Radio?', vibe: 'Radio is a Foreign Country', type: 'stream', url: 'https://radio.garden/api/ara/content/listen/b35yEqjv/channel.mp3' },
+    { freq: 'WEIRD', name: 'This is weird', vibe: 'Shirley & Spinoza', type: 'stream', url: 'https://radio.garden/api/ara/content/listen/BgoQjOjJ/channel.mp3' },
+    { freq: 'BURN', name: 'Brennpunkt', vibe: 'Radio Brennpunkt', type: 'stream', url: 'https://radio.garden/api/ara/content/listen/E0dcOHH1/channel.mp3' },
+    { freq: 'BIRD', name: 'Black Sparrow', vibe: 'Black Sparrow Radio', type: 'stream', url: 'https://radio.garden/api/ara/content/listen/2u7p_6ix/channel.mp3' },
+    { freq: 'NZ', name: 'Morrinsville', vibe: 'Positively Morrinsville 87.7FM', type: 'stream', url: 'https://radio.garden/api/ara/content/listen/MsPLmr4Z/channel.mp3' },
+    { freq: 'SPACE', name: 'Space?', vibe: 'SomaFM Space Station', type: 'stream', url: 'https://ice2.somafm.com/spacestation-128-mp3' },
+    { freq: 'SEAL', name: 'SpinninSeal', vibe: 'Spinning Seal FM', type: 'stream', url: 'https://radio.garden/api/ara/content/listen/d7RMpZjk/channel.mp3' },
+    { freq: 'DPRK', name: 'Literally North Korea', vibe: 'Pyongyang FM 105.2', type: 'stream', url: 'https://radio.garden/api/ara/content/listen/NPzavm5p/channel.mp3' },
+    { freq: 'UFO', name: 'Taiwan?', vibe: 'UFO Network', type: 'stream', url: 'https://radio.garden/api/ara/content/listen/Azn7mp47/channel.mp3' },
+    { freq: 'SUN', name: 'Babubasha', vibe: 'Sunshine FM 88.1', type: 'stream', url: 'https://radio.garden/api/ara/content/listen/GWApbiy1/channel.mp3' },
+    { freq: 'OLD', name: 'Unbewaffnete Bürger', vibe: 'Ancient FM', type: 'stream', url: 'https://radio.garden/api/ara/content/listen/-KZR7rZZ/channel.mp3' },
 ];
 
 const RadioWidget = () => {
@@ -33,98 +47,82 @@ const RadioWidget = () => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [volume, setVolume] = useState(0.5); // Local radio volume
     const [tuningAnimation, setTuningAnimation] = useState(false);
-    // audioContextRef is no longer needed as we use audioManager.ctx
     const oscillatorRef = useRef(null);
-    const gainNodeRef = useRef(null);
 
     const station = STATIONS[currentStation];
 
     // Initialize Web Audio on mount
     useEffect(() => {
-        // The audio context and gain node are now initialized within playMusic
-        // to handle potential user gesture requirements for audio playback.
         return () => {
             stopMusic();
-            // Do NOT close the shared context!
         };
     }, []);
 
     const stopMusic = () => {
         if (oscillatorRef.current) {
-            // Check if it's the new object with stop method
             if (typeof oscillatorRef.current.stop === 'function') {
-                oscillatorRef.current.stop();
-            } else {
-                // Legacy fallback (shouldn't happen with new code)
-                try { oscillatorRef.current.stop(); } catch (e) { }
+                try {
+                    oscillatorRef.current.stop();
+                } catch (e) {
+                    console.warn("Error stopping radio:", e);
+                }
             }
             oscillatorRef.current = null;
         }
     };
 
     const playMusic = () => {
-        // Ensure audio manager is initialized
-        if (!audioManager.ctx) {
-            audioManager.init();
-        }
-
         stopMusic();
 
-        // Station-specific frequencies and waveforms
-        const stationConfigs = {
-            0: { freq: 108.7, type: 'sine', detune: -100 }, // VOID FM - ethereal
-            1: { freq: 666.6, type: 'sawtooth', detune: 50 }, // FLESH RADIO - harsh
-            2: { freq: 404.0, type: 'square', detune: 0 }, // NOT FOUND - digital
-            3: { freq: 440, type: 'triangle', detune: 200 }, // THE SPIRAL - descending
-            4: { freq: 261.63, type: 'sine', detune: -50 }, // NULL WAVE - nothing
-            5: { freq: 314.159, type: 'sawtooth', detune: 100 }, // IRRATIONAL - chaotic
-            6: { freq: 220, type: 'square', detune: -25 }, // BUREAUCRAT - monotone
-            7: { freq: 523.25, type: 'triangle', detune: 150 }, // FEVER DREAM - high
-            8: { freq: 150, type: 'sine', detune: 10 }, // GARY'S MIXTAPE - chill lo-fi
-        };
+        if (!audioSynthesizer.isInitialized) audioSynthesizer.init();
 
-        const config = stationConfigs[currentStation];
-
-        // Use the new Void-Fi engine
-        import('../systems/AudioSynthesizer').then(({ audioSynthesizer }) => {
-            // Initialize if needed (though playRadioStation checks too)
-            if (!audioSynthesizer.isInitialized) audioSynthesizer.init();
-
-            // ROOT CAUSE FIX: Radio has independent volume regulator
+        if (station.type === 'stream') {
+            const radioNode = audioSynthesizer.playInternetRadio(station.url, volume);
+            oscillatorRef.current = radioNode;
+        } else {
+            // Legacy Synth Station
+            // If config is missing (legacy array), map it manually (fallback)
+            let config = station.config;
+            if (!config) {
+                // Fallback for safety if I missed something, but I updated the array above
+                config = { freq: 440, type: 'sine', detune: 0 };
+            }
             const radioNode = audioSynthesizer.playRadioStation(config, volume);
-            oscillatorRef.current = radioNode; // Store the control object
-        });
+            oscillatorRef.current = radioNode;
+        }
     };
 
-    useEffect(() => {
-        // Listen for copyright strikes
-        const handleStrikeStart = () => {
-            if (isPlaying) {
-                stopMusic();
-                // Force update UI to show muted state if needed, but stopMusic handles the audio
-            }
-        };
-
-        const handleStrikeEnd = () => {
-            // Optionally resume? Nah, let them click play again.
-        };
-
-        eventBus.on('COPYRIGHT_STRIKE_START', handleStrikeStart);
-        eventBus.on('COPYRIGHT_STRIKE_END', handleStrikeEnd);
-
-        return () => {
-            eventBus.off('COPYRIGHT_STRIKE_START', handleStrikeStart);
-            eventBus.off('COPYRIGHT_STRIKE_END', handleStrikeEnd);
-        };
-    }, [isPlaying]);
-
+    // Handle Play/Stop and Station Change
     useEffect(() => {
         if (isPlaying) {
             playMusic();
         } else {
             stopMusic();
         }
-    }, [isPlaying, currentStation, volume]); // Removed masterVolume dependency
+    }, [isPlaying, currentStation]);
+
+    // Handle Copyright Strikes
+    useEffect(() => {
+        const handleStrikeStart = () => {
+            if (isPlaying) {
+                setIsPlaying(false); // Update state to reflect stop
+                stopMusic();
+            }
+        };
+
+        eventBus.on('COPYRIGHT_STRIKE_START', handleStrikeStart);
+        return () => {
+            eventBus.off('COPYRIGHT_STRIKE_START', handleStrikeStart);
+        };
+    }, [isPlaying]);
+
+    // Handle Volume Change separately
+    useEffect(() => {
+        if (oscillatorRef.current && typeof oscillatorRef.current.setVolume === 'function') {
+            // Radio volume is independent of Master Volume (per user request)
+            oscillatorRef.current.setVolume(volume);
+        }
+    }, [volume]);
 
     const handleTune = (direction) => {
         setTuningAnimation(true);
@@ -195,7 +193,7 @@ const RadioWidget = () => {
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{ fontSize: '24px' }}>📻</span>
                     <WobbleText intensity={1} speed={0.003}>
-                        <span style={{ fontWeight: 'bold', fontSize: '14px' }}>RADIO</span>
+                        RADIO
                     </WobbleText>
                 </div>
                 <SquishyButton
@@ -321,9 +319,7 @@ const RadioWidget = () => {
                     onChange={(e) => {
                         const v = parseFloat(e.target.value);
                         setVolume(v);
-                        if (oscillatorRef.current && typeof oscillatorRef.current.setVolume === 'function') {
-                            oscillatorRef.current.setVolume(v);
-                        }
+                        // useEffect will handle the actual volume setting
                     }}
                     style={{
                         width: '100%',
@@ -360,4 +356,4 @@ const RadioWidget = () => {
     );
 };
 
-export default RadioWidget;
+export default React.memo(RadioWidget);

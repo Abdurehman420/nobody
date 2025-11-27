@@ -50,18 +50,25 @@ const drawPortalNode = (ctx, x, y, size, mouseX, mouseY, time, pressure, isBlob)
     if (auraSize <= innerRadius) return; // Skip if invalid
 
     // Gradient from center outwards
-    const gradient = ctx.createRadialGradient(x, y, innerRadius, x, y, auraSize);
+    // Gradient from center outwards
+    if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(innerRadius) && Number.isFinite(auraSize) && auraSize > innerRadius) {
+        try {
+            const gradient = ctx.createRadialGradient(x, y, innerRadius, x, y, auraSize);
 
-    // Color shift during pulse - more intense when breathing in
-    const colorIntensity = 0.6 + (breathPhase * 0.4); // 0.6 to 1.0
-    gradient.addColorStop(0, `rgba(148, 0, 211, ${0.8 * colorIntensity})`);     // Deep purple core
-    gradient.addColorStop(0.5, `rgba(75, 0, 130, ${0.4 * colorIntensity})`);   // Indigo middle
-    gradient.addColorStop(1, 'rgba(148, 0, 211, 0)');                          // Fade to transparent
+            // Color shift during pulse - more intense when breathing in
+            const colorIntensity = 0.6 + (breathPhase * 0.4); // 0.6 to 1.0
+            gradient.addColorStop(0, `rgba(148, 0, 211, ${0.8 * colorIntensity})`);     // Deep purple core
+            gradient.addColorStop(0.5, `rgba(75, 0, 130, ${0.4 * colorIntensity})`);   // Indigo middle
+            gradient.addColorStop(1, 'rgba(148, 0, 211, 0)');                          // Fade to transparent
 
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(x, y, auraSize, 0, Math.PI * 2);
-    ctx.fill();
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(x, y, auraSize, 0, Math.PI * 2);
+            ctx.fill();
+        } catch (e) {
+            // Ignore gradient errors
+        }
+    }
 
     // 2. Main Node Body (pulsing)
     ctx.fillStyle = COLORS.NODE;
@@ -222,7 +229,8 @@ const drawElectricLine = (ctx, x1, y1, x2, y2, color, width, time, flow) => {
         const y = y1 + (y2 - y1) * t;
 
         // Electric Jitter
-        const jitter = (Math.random() - 0.5) * 5;
+        // ROOT CAUSE FIX: Reduced jitter from 5 to 2 to make lines sharper/thinner
+        const jitter = (Math.random() - 0.5) * 2;
 
         // Flow Particles
         const particleT = (time * 0.001 * (1 + flow * 5)) % 1; // Moving particle
@@ -245,13 +253,15 @@ const drawElectricLine = (ctx, x1, y1, x2, y2, color, width, time, flow) => {
 
             ctx.beginPath();
             ctx.fillStyle = '#FFFFFF';
-            ctx.arc(px, py, 2 + flow * 2, 0, Math.PI * 2);
+            // ROOT CAUSE FIX: Cap flow particle size to 3px. Was unbounded.
+            const pSize = Math.min(3, 1 + flow * 0.5);
+            ctx.arc(px, py, pSize, 0, Math.PI * 2);
             ctx.fill();
         }
     }
 };
 
-const drawParticles = (ctx, particles, worldOffset, centerX, centerY, state, zoom) => {
+const drawParticles = (ctx, particles, worldOffset, centerX, centerY, state, zoom, visibleBounds) => {
     // === 13. PARTICLES ===
     ctx.save();
     ctx.translate(centerX, centerY);
@@ -260,6 +270,12 @@ const drawParticles = (ctx, particles, worldOffset, centerX, centerY, state, zoo
 
     // Cheat: Turbo Dismount - 10x gravity
     particles.forEach(p => {
+        // CULLING
+        if (visibleBounds) {
+            if (p.x < visibleBounds.left || p.x > visibleBounds.right || p.y < visibleBounds.top || p.y > visibleBounds.bottom) {
+                return;
+            }
+        }
         // Ensure state is defined before accessing properties
         if (!p || !state) return;
 
@@ -314,6 +330,28 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
     ctx.scale(zoom, zoom);
     ctx.translate(-centerX, -centerY);
 
+    // === OPTIMIZATION: View Frustum Culling ===
+    // Calculate visible world bounds
+    // Screen coords: (0,0) to (width, height)
+    // World coords: (x - centerX) / zoom + centerX + worldOffset.x
+
+    const margin = 200; // Draw slightly outside screen to prevent pop-in
+    const visibleLeft = (0 - centerX) / zoom + centerX + worldOffset.x - margin;
+    const visibleRight = (width - centerX) / zoom + centerX + worldOffset.x + margin;
+    const visibleTop = (0 - centerY) / zoom + centerY + worldOffset.y - margin;
+    const visibleBottom = (height - centerY) / zoom + centerY + worldOffset.y + margin;
+
+    const isVisible = (x, y, radius = 0) => {
+        return x + radius >= visibleLeft &&
+            x - radius <= visibleRight &&
+            y + radius >= visibleTop &&
+            y - radius <= visibleBottom;
+    };
+
+    // Filter entities for rendering (except edges which need both nodes)
+    // Note: We don't filter the state array itself to avoid mutation issues, 
+    // but we use these bounds in loops.
+
     // === MODULE F: Render Fake Nodes ===
     if (state.fakeNodes && state.fakeNodes.length > 0) {
         ctx.save();
@@ -321,6 +359,8 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
         ctx.translate(-worldOffset.x, -worldOffset.y);
 
         state.fakeNodes.forEach(fakeNode => {
+            if (!isVisible(fakeNode.x, fakeNode.y, 50)) return; // CULLING
+
             if (fakeNode.revealed) {
                 // Show brick wall
                 ctx.fillStyle = '#8B4513';
@@ -363,37 +403,79 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
 
     // === MODULE F: Render Emotional Baggage ===
     if (state.emotionalBaggage && state.emotionalBaggage.length > 0) {
-        ctx.save();
-        ctx.translate(centerX, centerY);
-        ctx.translate(-worldOffset.x, -worldOffset.y);
-
         state.emotionalBaggage.forEach(baggage => {
-            ctx.fillStyle = baggage.color;
-            ctx.globalAlpha = 0.8;
+            if (!isVisible(baggage.x, baggage.y, 40)) return; // CULLING
 
-            // Draw suitcase shape
-            ctx.fillRect(baggage.x - 4, baggage.y - 3, 8, 6);
+            const x = centerX + baggage.x - worldOffset.x;
+            const y = centerY + baggage.y - worldOffset.y;
 
-            // Handle
-            ctx.strokeStyle = baggage.color;
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.arc(baggage.x, baggage.y - 5, 3, Math.PI, 0);
-            ctx.stroke();
+            // Draw Suitcase Sprite
+            if (window.suitcaseSprite && window.suitcaseSprite.complete) {
+                ctx.save();
+                ctx.translate(x, y);
 
-            // Sad face if not repressed
-            if (!baggage.isRepressed) {
-                ctx.fillStyle = '#000';
-                ctx.fillRect(baggage.x - 2, baggage.y - 1, 1, 1); // Left eye
-                ctx.fillRect(baggage.x + 1, baggage.y - 1, 1, 1); // Right eye
-                ctx.beginPath(); // Sad mouth
-                ctx.arc(baggage.x, baggage.y + 1, 2, 0, Math.PI);
+                // Heavy bobbing animation (slower, heavier feel)
+                const bob = Math.sin(tick * 0.03 + baggage.x) * 3;
+                ctx.translate(0, bob);
+
+                // Slight rotation based on movement (if it had velocity, but we'll just fake it)
+                const rock = Math.sin(tick * 0.02 + baggage.y) * 0.05;
+                ctx.rotate(rock);
+
+                const size = 40; // Fixed size for baggage
+                const sprite = window.suitcaseSprite;
+                const aspect = sprite.width / sprite.height;
+
+                let drawW = size;
+                let drawH = size;
+
+                if (aspect > 1) {
+                    drawH = size;
+                    drawW = size * aspect;
+                } else {
+                    drawW = size;
+                    drawH = size / aspect;
+                }
+
+                ctx.drawImage(sprite, -drawW / 2, -drawH / 2, drawW, drawH);
+                ctx.restore();
+            } else {
+                // Fallback: Load sprite if missing
+                if (!window.suitcaseSprite) {
+                    window.suitcaseSprite = new Image();
+                    window.suitcaseSprite.src = '/assets/suitcase_sprite.png';
+                }
+
+                ctx.save();
+                ctx.translate(x, y);
+
+                ctx.fillStyle = baggage.color;
+                ctx.globalAlpha = 0.8;
+
+                // Draw suitcase shape (Fallback)
+                ctx.fillRect(-4, -3, 8, 6);
+
+                // Handle
+                ctx.strokeStyle = baggage.color;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(0, -5, 3, Math.PI, 0);
                 ctx.stroke();
+
+                // Sad face if not repressed
+                if (!baggage.isRepressed) {
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(-2, -1, 1, 1); // Left eye
+                    ctx.fillRect(1, -1, 1, 1); // Right eye
+                    ctx.beginPath(); // Sad mouth
+                    ctx.arc(0, 1, 2, 0, Math.PI);
+                    ctx.stroke();
+                }
+
+                ctx.globalAlpha = 1;
+                ctx.restore();
             }
         });
-
-        ctx.globalAlpha = 1;
-        ctx.restore();
     }
 
     // === MODULE F: Render Generic NPCs ===
@@ -403,6 +485,8 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
         ctx.translate(-worldOffset.x, -worldOffset.y);
 
         state.genericNPCs.forEach(npc => {
+            if (!isVisible(npc.x, npc.y, 40)) return; // CULLING
+
             ctx.save();
             ctx.translate(npc.x, npc.y);
 
@@ -410,43 +494,70 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
                 ctx.rotate(npc.rotation);
             }
 
-            // Draw untextured humanoid (simple stick figure)
-            ctx.strokeStyle = npc.color;
-            ctx.lineWidth = 3;
-            ctx.lineCap = 'round';
+            // Draw NPC Sprite
+            if (window.npcSprite && window.npcSprite.complete) {
+                const size = 40;
+                const sprite = window.npcSprite;
+                const aspect = sprite.width / sprite.height;
 
-            // Head
-            ctx.beginPath();
-            ctx.arc(0, -15, 5, 0, Math.PI * 2);
-            ctx.stroke();
+                let drawW = size;
+                let drawH = size;
 
-            // Body
-            ctx.beginPath();
-            ctx.moveTo(0, -10);
-            ctx.lineTo(0, 5);
-            ctx.stroke();
+                if (aspect > 1) {
+                    drawH = size;
+                    drawW = size * aspect;
+                } else {
+                    drawW = size;
+                    drawH = size / aspect;
+                }
 
-            if (npc.isTposing) {
-                // T-pose arms
-                ctx.beginPath();
-                ctx.moveTo(-12, -5);
-                ctx.lineTo(12, -5);
-                ctx.stroke();
+                // Center the sprite
+                ctx.drawImage(sprite, -drawW / 2, -drawH / 2, drawW, drawH);
             } else {
-                // Normal arms
+                // Fallback: Load sprite if missing
+                if (!window.npcSprite) {
+                    window.npcSprite = new Image();
+                    window.npcSprite.src = '/assets/npc_sprite.png';
+                }
+
+                // Draw untextured humanoid (simple stick figure) - Fallback
+                ctx.strokeStyle = npc.color;
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+
+                // Head
                 ctx.beginPath();
-                ctx.moveTo(-8, 0);
-                ctx.lineTo(0, -5);
-                ctx.lineTo(8, 0);
+                ctx.arc(0, -15, 5, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Body
+                ctx.beginPath();
+                ctx.moveTo(0, -10);
+                ctx.lineTo(0, 5);
+                ctx.stroke();
+
+                if (npc.isTposing) {
+                    // T-pose arms
+                    ctx.beginPath();
+                    ctx.moveTo(-12, -5);
+                    ctx.lineTo(12, -5);
+                    ctx.stroke();
+                } else {
+                    // Normal arms
+                    ctx.beginPath();
+                    ctx.moveTo(-8, 0);
+                    ctx.lineTo(0, -5);
+                    ctx.lineTo(8, 0);
+                    ctx.stroke();
+                }
+
+                // Legs
+                ctx.beginPath();
+                ctx.moveTo(-5, 15);
+                ctx.lineTo(0, 5);
+                ctx.lineTo(5, 15);
                 ctx.stroke();
             }
-
-            // Legs
-            ctx.beginPath();
-            ctx.moveTo(-5, 15);
-            ctx.lineTo(0, 5);
-            ctx.lineTo(5, 15);
-            ctx.stroke();
 
             // Draw dialogue bubble if present
             if (npc.currentDialogue && !npc.isRagdoll) {
@@ -514,6 +625,8 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
         ctx.translate(-worldOffset.x, -worldOffset.y);
 
         state.schrodingerBoxes.forEach(box => {
+            if (!isVisible(box.x, box.y, 60)) return; // CULLING
+
             if (!box.observed) {
                 // Vibrating box
                 const vibration = Math.sin(tick * 0.1) * 2;
@@ -640,7 +753,8 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
         const y2 = centerY + target.y - worldOffset.y + meltY;
 
         // Pulse width based on flow
-        const flowWidth = 0.5 + Math.abs(edge.flow || 0) * 3;
+        // ROOT CAUSE FIX: Cap width to 4px and reduce multiplier. Was unbounded.
+        const flowWidth = Math.min(4, 0.5 + Math.abs(edge.flow || 0) * 0.5);
         const color = edge.flow > 0 ? COLORS.CONNECTION_FLOW : COLORS.CONNECTION_STAGNANT;
 
         // Always use Electric Line for better visuals
@@ -649,6 +763,7 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
 
     // Draw Nodes (Portals)
     nodes.forEach((node, index) => {
+        if (!isVisible(node.x, node.y, 50)) return; // CULLING
         // Apply melt offset
         const meltY = Math.sin(tick * 0.01 + node.x * 0.1) * 10 * meltFactor;
 
@@ -672,18 +787,6 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
             ctx.arc(x, y, 30, 0, Math.PI * 2);
             ctx.stroke();
             ctx.setLineDash([]);
-
-            // Draw connection line to mouse (Inverse transform for mouse pos)
-            const mouseWorldX = (mousePos.x - centerX) / zoom + centerX;
-            const mouseWorldY = (mousePos.y - centerY) / zoom + centerY;
-
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-            ctx.lineTo(mouseWorldX, mouseWorldY);
-            ctx.strokeStyle = '#00FF00';
-            ctx.lineWidth = 2;
-            ctx.setLineDash([]);
-            ctx.stroke();
         }
 
         // Gluten-Free Sticker (Source Node Only)
@@ -713,56 +816,136 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
     });
 
     // Draw Obstacles (Rocks)
+    // Draw Obstacles (Rocks)
     if (state.obstacles) {
         state.obstacles.forEach(rock => {
             const x = centerX + rock.x - worldOffset.x;
             const y = centerY + rock.y - worldOffset.y;
+            // Draw Obstacle Sprite
+            if (window.obstacleSprite && window.obstacleSprite.complete) {
+                ctx.save();
+                ctx.translate(x, y);
 
-            ctx.beginPath();
-            ctx.fillStyle = '#444';
-            ctx.strokeStyle = '#666';
-            ctx.lineWidth = 2;
+                // Add a slow rotation effect for the swirling eyes
+                ctx.rotate(tick * 0.005);
 
-            // Draw rough polygon
-            const sides = 7;
-            for (let i = 0; i < sides; i++) {
-                const angle = (i / sides) * Math.PI * 2;
-                const r = rock.radius * (0.8 + Math.sin(i * 132.1) * 0.2);
-                const px = x + Math.cos(angle) * r;
-                const py = y + Math.sin(angle) * r;
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
+                // Add a slight breathing effect
+                const breath = 1 + Math.sin(tick * 0.05) * 0.05;
+                ctx.scale(breath, breath);
+
+                const size = rock.radius * 2.8; // Base size scalar
+                const sprite = window.obstacleSprite;
+                const aspect = sprite.width / sprite.height;
+
+                let drawW = size;
+                let drawH = size;
+
+                // Scale proportionally to ensure the SMALLEST dimension covers the area
+                if (aspect > 1) {
+                    // Wide image: Height = size, Width scales up
+                    drawH = size;
+                    drawW = size * aspect;
+                } else {
+                    // Tall image: Width = size, Height scales up
+                    drawW = size;
+                    drawH = size / aspect;
+                }
+
+                ctx.drawImage(sprite, -drawW / 2, -drawH / 2, drawW, drawH);
+
+                ctx.restore();
+            } else {
+                // Fallback: Load sprite if missing
+                if (!window.obstacleSprite) {
+                    window.obstacleSprite = new Image();
+                    window.obstacleSprite.src = '/assets/obstacle_sprite.png';
+                }
+
+                // Draw rough polygon (Fallback)
+                ctx.beginPath();
+                ctx.fillStyle = '#444';
+                ctx.strokeStyle = '#666';
+                ctx.lineWidth = 2;
+
+                const sides = 7;
+                for (let i = 0; i < sides; i++) {
+                    const angle = (i / sides) * Math.PI * 2;
+                    const r = rock.radius * (0.8 + Math.sin(i * 132.1) * 0.2);
+                    const px = x + Math.cos(angle) * r;
+                    const py = y + Math.sin(angle) * r;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
             }
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
         });
     }
 
+    // Draw Enemies
     // Draw Enemies
     if (state.enemies) {
         state.enemies.forEach(enemy => {
             const x = centerX + enemy.x - worldOffset.x;
             const y = centerY + enemy.y - worldOffset.y;
 
-            ctx.beginPath();
-            ctx.fillStyle = '#FF0000';
-            ctx.strokeStyle = '#FF4444';
-            ctx.lineWidth = 2;
+            // Draw Enemy Sprite
+            if (window.enemySprite && window.enemySprite.complete) {
+                ctx.save();
+                ctx.translate(x, y);
 
-            // Draw spiky shape
-            const spikes = 5;
-            for (let i = 0; i < spikes * 2; i++) {
-                const angle = (i / (spikes * 2)) * Math.PI * 2 + tick * 0.05;
-                const r = enemy.radius * (i % 2 === 0 ? 1.5 : 0.5);
-                const px = x + Math.cos(angle) * r;
-                const py = y + Math.sin(angle) * r;
-                if (i === 0) ctx.moveTo(px, py);
-                else ctx.lineTo(px, py);
+                // Hover effect (Bobbing up and down)
+                const hover = Math.sin(tick * 0.05 + enemy.x) * 5;
+                ctx.translate(0, hover);
+
+                // Slight squish/stretch on the beat
+                const squish = 1 + Math.sin(tick * 0.1) * 0.05;
+                ctx.scale(squish, 1 / squish);
+
+                const size = enemy.radius * 3.0;
+                const sprite = window.enemySprite;
+                const aspect = sprite.width / sprite.height;
+
+                let drawW = size;
+                let drawH = size;
+
+                if (aspect > 1) {
+                    drawH = size;
+                    drawW = size * aspect;
+                } else {
+                    drawW = size;
+                    drawH = size / aspect;
+                }
+
+                ctx.drawImage(sprite, -drawW / 2, -drawH / 2, drawW, drawH);
+                ctx.restore();
+            } else {
+                // Fallback: Load sprite if missing
+                if (!window.enemySprite) {
+                    window.enemySprite = new Image();
+                    window.enemySprite.src = '/assets/enemy_sprite.png';
+                }
+
+                ctx.beginPath();
+                ctx.fillStyle = '#FF0000';
+                ctx.strokeStyle = '#FF4444';
+                ctx.lineWidth = 2;
+
+                // Draw spiky shape (Fallback)
+                const spikes = 5;
+                for (let i = 0; i < spikes * 2; i++) {
+                    const angle = (i / (spikes * 2)) * Math.PI * 2 + tick * 0.05;
+                    const r = enemy.radius * (i % 2 === 0 ? 1.5 : 0.5);
+                    const px = x + Math.cos(angle) * r;
+                    const py = y + Math.sin(angle) * r;
+                    if (i === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
             }
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
         });
     }
 
@@ -772,19 +955,59 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
             const x = centerX + desk.x - worldOffset.x;
             const y = centerY + desk.y - worldOffset.y;
 
-            ctx.fillStyle = desk.compliant ? '#32CD32' : '#4B0082'; // Green if compliant, Indigo if not
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 2;
+            // Draw Desk Sprite
+            if (window.deskSprite && window.deskSprite.complete) {
+                ctx.save();
+                ctx.translate(x, y);
 
-            // Draw Desk (Rectangle)
-            ctx.fillRect(x - desk.width / 2, y - desk.height / 2, desk.width, desk.height);
-            ctx.strokeRect(x - desk.width / 2, y - desk.height / 2, desk.width, desk.height);
+                // ROOT CAUSE FIX: Reduced desk size significantly (was 1.5)
+                const size = Math.max(desk.width, desk.height) * 0.5;
+                const sprite = window.deskSprite;
+                const aspect = sprite.width / sprite.height;
 
-            // Label
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = '10px monospace';
-            ctx.textAlign = 'center';
-            ctx.fillText(desk.compliant ? 'OK' : desk.department.split('_').map(w => w[0].toUpperCase()).join(''), x, y + 5);
+                let drawW = size;
+                let drawH = size;
+
+                if (aspect > 1) {
+                    drawH = size;
+                    drawW = size * aspect;
+                } else {
+                    drawW = size;
+                    drawH = size / aspect;
+                }
+
+                ctx.drawImage(sprite, -drawW / 2, -drawH / 2, drawW, drawH);
+
+                // Label (Compliance Status)
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'center';
+                ctx.shadowColor = '#000';
+                ctx.shadowBlur = 4;
+                ctx.fillText(desk.compliant ? 'OK' : 'NON-COMPLIANT', 0, drawH / 2 + 10);
+
+                ctx.restore();
+            } else {
+                // Fallback
+                if (!window.deskSprite) {
+                    window.deskSprite = new Image();
+                    window.deskSprite.src = '/assets/desk_sprite.jpg';
+                }
+
+                ctx.fillStyle = desk.compliant ? '#32CD32' : '#4B0082'; // Green if compliant, Indigo if not
+                ctx.strokeStyle = '#FFFFFF';
+                ctx.lineWidth = 2;
+
+                // Draw Desk (Rectangle)
+                ctx.fillRect(x - desk.width / 2, y - desk.height / 2, desk.width, desk.height);
+                ctx.strokeRect(x - desk.width / 2, y - desk.height / 2, desk.width, desk.height);
+
+                // Label
+                ctx.fillStyle = '#FFFFFF';
+                ctx.font = '10px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(desk.compliant ? 'OK' : desk.department.split('_').map(w => w[0].toUpperCase()).join(''), x, y + 5);
+            }
         });
     }
 
@@ -994,7 +1217,9 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
     }
 
     // Draw Particles
-    drawParticles(ctx, particles, worldOffset, centerX, centerY);
+    // ROOT CAUSE FIX: Pass state and zoom so particles scale correctly!
+    const visibleBounds = { left: visibleLeft, right: visibleRight, top: visibleTop, bottom: visibleBottom };
+    drawParticles(ctx, particles, worldOffset, centerX, centerY, state, zoom, visibleBounds);
 
     // --- FOG OF WAR ---
     // Check if Fog is cleared globally (Active Skill: Third Eye Squeegee)
@@ -1034,14 +1259,22 @@ export const renderGame = (ctx, state, mousePos, width, height, selectedNodeId, 
 
             // Draw gradient for soft edges
             const r = fogRadius * zoom;
-            const gradient = fCtx.createRadialGradient(screenX, screenY, r * 0.5, screenX, screenY, r);
-            gradient.addColorStop(0, 'rgba(0, 0, 0, 1)'); // Opaque (cuts fully)
-            gradient.addColorStop(1, 'rgba(0, 0, 0, 0)'); // Transparent (leaves fog)
 
-            fCtx.beginPath();
-            fCtx.fillStyle = gradient;
-            fCtx.arc(screenX, screenY, r, 0, Math.PI * 2);
-            fCtx.fill();
+            // Safety check for finite values
+            if (Number.isFinite(screenX) && Number.isFinite(screenY) && Number.isFinite(r) && r > 0) {
+                try {
+                    const gradient = fCtx.createRadialGradient(screenX, screenY, r * 0.5, screenX, screenY, r);
+                    gradient.addColorStop(0, 'rgba(0, 0, 0, 1)'); // Opaque (cuts fully)
+                    gradient.addColorStop(1, 'rgba(0, 0, 0, 0)'); // Transparent (leaves fog)
+
+                    fCtx.beginPath();
+                    fCtx.fillStyle = gradient;
+                    fCtx.arc(screenX, screenY, r, 0, Math.PI * 2);
+                    fCtx.fill();
+                } catch (e) {
+                    // Ignore gradient errors during transitions
+                }
+            }
         });
 
         fCtx.globalCompositeOperation = 'source-over'; // Reset

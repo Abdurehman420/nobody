@@ -61,7 +61,8 @@ export default function HateMail({ gameState, dispatch }) {
                 const civ = new MicroCivilization(0, 0);
                 civ.name = senders[Math.floor(Math.random() * senders.length)];
                 civ.color = '#FF0000';
-                civ.personality = 'Angry';
+                const personalities = ['Angry', 'Diplomatic', 'Aggressive', 'Paranoid', 'Greedy', 'Passive-Aggressive'];
+                civ.personality = personalities[Math.floor(Math.random() * personalities.length)];
 
                 const message = {
                     id: `msg-yelp-${Date.now()}-${i}`,
@@ -76,8 +77,8 @@ export default function HateMail({ gameState, dispatch }) {
 
                 // Play notification sound
                 // Play notification sound
-                import('../engine/audio').then(({ audioManager }) => {
-                    audioManager.playSound('notification');
+                import('../systems/AudioSynthesizer').then(({ audioSynthesizer }) => {
+                    audioSynthesizer.playTone(440, 'sine', 0.1, 0.05); // notification (softer)
                 });
 
             }, i * 800); // Stagger them

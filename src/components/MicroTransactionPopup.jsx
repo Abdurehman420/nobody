@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { eventBus, EVENT_TYPES } from '../systems/EventBus';
 import SquishyButton from './SquishyButton';
-import { audioManager } from '../engine/audio';
+import { audioSynthesizer } from '../systems/AudioSynthesizer';
 
 const MicroTransactionPopup = ({ gameState }) => {
     const [isVisible, setIsVisible] = useState(false);
@@ -30,7 +30,7 @@ const MicroTransactionPopup = ({ gameState }) => {
     const handleNoThanks = () => {
         setIsVisible(false);
         // Play cash register sound anyway
-        audioManager.playSound('cash_register');
+        audioSynthesizer.playTone(600, 'sine', 0.1, 0.05); // cash_register (softer)
 
         eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
             message: "Your money is worthless here. But I'll take it in spirit."

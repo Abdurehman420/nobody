@@ -41,8 +41,19 @@ class AudioSynthesizer {
     async init() {
         if (this.isInitialized) return;
 
+        // HMR CLEANUP: Close old context if it exists to prevent stacking/humming
+        if (window.__NEON_AUDIO_CTX__) {
+            try {
+                console.log('🧹 Cleaning up old AudioContext...');
+                window.__NEON_AUDIO_CTX__.close();
+            } catch (e) {
+                console.warn('Failed to close old AudioContext:', e);
+            }
+        }
+
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         this.ctx = new AudioContext();
+        window.__NEON_AUDIO_CTX__ = this.ctx; // Store for next cleanup
 
         // Master Gain
         // Master Gain
@@ -89,7 +100,12 @@ class AudioSynthesizer {
         this.globalLowPass.frequency.value = 800; // Cut everything above 800Hz for that "dump" sound
         this.globalLowPass.Q.value = 0.5; // Soft roll-off
 
-        this.compressor.connect(this.ctx.destination);
+        // Analyser for Winamp Visualizer
+        this.analyser = this.ctx.createAnalyser();
+        this.analyser.fftSize = 256;
+
+        this.compressor.connect(this.analyser);
+        this.analyser.connect(this.ctx.destination);
 
         // Chain: masterGain -> warmth -> globalLowPass -> compressor -> destination
         //       warmth -> delay -> reverb -> globalLowPass
@@ -181,8 +197,11 @@ class AudioSynthesizer {
      */
     setMasterVolume(volume) {
         const clampedVolume = Math.max(0, Math.min(1, volume));
+        this.targetVolume = clampedVolume; // Track for ducking/restoration
 
         if (this.masterGain) {
+            // Cancel any scheduled ducking events if volume is changed manually
+            this.masterGain.gain.cancelScheduledValues(this.ctx.currentTime);
             this.masterGain.gain.value = clampedVolume;
         }
 
@@ -460,7 +479,7 @@ class AudioSynthesizer {
     /**
      * Play arpeggio pattern
      */
-    playArpeggio(freqs, bpm, direction = 'UP', bars = 2) {
+    playArpeggio(freqs, bpm, direction = 'UP', bars = 2, volume = 0.08) {
         const beatDuration = (60 / bpm) * 1000; // ms per beat
         const totalBeats = freqs.length * bars;
 
@@ -473,7 +492,7 @@ class AudioSynthesizer {
                 ? beatIndex % freqs.length
                 : (freqs.length - 1) - (beatIndex % freqs.length);
 
-            this.playTone(freqs[noteIndex], 'sine', beatDuration / 1000, 0.08);
+            this.playTone(freqs[noteIndex], 'sine', beatDuration / 1000, volume);
             beatIndex++;
 
             if (beatIndex >= totalBeats) {
@@ -529,17 +548,23 @@ class AudioSynthesizer {
     }
 
     /**
-     * Update drone based on game state
+     * Updates the ambient drone based on game state
+     * @param {number} intensity - 0.0 to 1.0 (based on Flux)
+     * @param {number} nodeCount - Modulates pitch/complexity
+     * @param {number} masterVolume - 0.0 to 1.0
      */
-    updateDrone(intensity, nodeCount) {
-        if (!this.isInitialized) return;
+    updateDrone(intensity, nodeCount, masterVolume = 0.5) {
+        if (!this.droneOsc) return;
 
-        const targetFreq = 55 + (nodeCount % 5) * 5;
-        const targetFilter = 200 + intensity * 800; // More dramatic
+        const now = this.ctx.currentTime;
+        const targetGain = Math.min(0.2, intensity * 0.2) * masterVolume;
 
-        this.droneOsc.frequency.setTargetAtTime(targetFreq, this.ctx.currentTime, 2.0);
-        this.droneFilter.frequency.setTargetAtTime(targetFilter, this.ctx.currentTime, 0.5);
-        this.droneGain.gain.setTargetAtTime(0.08 + intensity * 0.08, this.ctx.currentTime, 0.5);
+        // Smoothly ramp gain
+        this.droneGain.gain.setTargetAtTime(targetGain, now, 0.5);
+
+        // Modulate filter based on node count
+        const targetFreq = 100 + (nodeCount * 10);
+        this.droneFilter.frequency.setTargetAtTime(Math.min(800, targetFreq), now, 1.0);
     }
 
     /**
@@ -602,14 +627,20 @@ class AudioSynthesizer {
     duckAudio() {
         if (!this.masterGain) return;
 
+        // If master volume is 0, don't do anything (it's already silent)
+        if (this.targetVolume === 0) return;
+
         const t = this.ctx.currentTime;
-        // Duck down to 30% volume
+        const currentVol = this.targetVolume || 0.3; // Default to 0.3 if not set
+        const duckVol = currentVol * 0.3; // Duck to 30% of current volume
+
+        // Duck down
         this.masterGain.gain.cancelScheduledValues(t);
         this.masterGain.gain.setValueAtTime(this.masterGain.gain.value, t);
-        this.masterGain.gain.linearRampToValueAtTime(0.1, t + 0.1);
+        this.masterGain.gain.linearRampToValueAtTime(duckVol, t + 0.1);
 
         // Restore after 3 seconds (approx reading time)
-        this.masterGain.gain.linearRampToValueAtTime(0.3, t + 3.0);
+        this.masterGain.gain.linearRampToValueAtTime(currentVol, t + 3.0);
     }
     setConnectionSoundsEnabled(enabled) {
         this.connectionSoundsEnabled = enabled;
@@ -795,6 +826,12 @@ class AudioSynthesizer {
      */
     playRadioStation(stationConfig, volume) {
         if (!this.isInitialized) return null;
+
+        // Ensure context is running (user interaction might have been lost)
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+
         const t = this.ctx.currentTime;
 
         // 1. Source (Oscillator for now, could be buffer)
@@ -834,7 +871,7 @@ class AudioSynthesizer {
         osc.connect(bandpass);
         bandpass.connect(delay);
         delay.connect(gain);
-        // ROOT CAUSE FIX: Connect to compressor to bypass Master Volume but keep dynamics
+        // 4. Connect to Compressor (bypassing master gain so radio works when game is muted)
         gain.connect(this.compressor);
 
         osc.start(t);
@@ -864,6 +901,37 @@ class AudioSynthesizer {
             }
         };
     }
+
+    /**
+     * INTERNET RADIO: Stream external audio
+     * Uses HTML5 Audio to bypass CORS issues with Web Audio API
+     */
+    playInternetRadio(url, volume) {
+        const audio = new Audio(url);
+        // audio.crossOrigin = "anonymous"; // REMOVED: Causes CORS errors on some streams. Opaque playback is fine.
+        audio.volume = Math.max(0, Math.min(1, volume * 0.5)); // Scale down slightly
+        audio.loop = true;
+
+        const playPromise = audio.play();
+
+        if (playPromise !== undefined) {
+            playPromise.catch(error => {
+                if (error.name === 'AbortError') return; // Ignore interruption
+                console.warn("Radio stream playback failed:", error);
+            });
+        }
+
+        return {
+            stop: () => {
+                audio.pause();
+                audio.src = "";
+            },
+            setVolume: (v) => {
+                audio.volume = Math.max(0, Math.min(1, v * 0.5));
+            }
+        };
+    }
+
     /**
      * PSYCHOACOUSTIC: Orbiting Sound (Binaural Panning)
      * sound orbits the listener's head

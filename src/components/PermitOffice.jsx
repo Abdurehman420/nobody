@@ -21,22 +21,22 @@ const PermitOffice = () => {
         { id: 'existential_compliance', name: 'Existential', icon: '👁️' }
     ];
 
-    if (!isOpen) {
-        return (
+    return (
+        <>
             <SquishyButton
-                onClick={() => setIsOpen(true)}
+                onClick={() => setIsOpen(!isOpen)}
                 preset="WOBBLY"
                 style={{
                     position: 'absolute',
                     top: '220px',
                     right: '20px',
-                    background: '#4B0082',
+                    background: isOpen ? '#DA70D6' : '#4B0082',
                     border: '1px solid #DA70D6',
-                    color: '#FFF',
+                    color: isOpen ? '#000' : '#FFF',
                     padding: '10px',
                     fontFamily: 'monospace',
                     cursor: 'pointer',
-                    zIndex: 10,
+                    zIndex: 110, // Higher than screen
                     boxShadow: '0 0 10px #4B0082',
                     display: 'flex',
                     alignItems: 'center',
@@ -45,64 +45,65 @@ const PermitOffice = () => {
             >
                 <span>📜</span> PERMITS
             </SquishyButton>
-        );
-    }
 
-    return (
-        <div style={{
-            ...containerStyle,
-            position: 'absolute',
-            top: '150px',
-            left: '20px',
-            background: 'rgba(20, 0, 40, 0.95)',
-            border: '2px solid #DA70D6',
-            padding: '15px',
-            color: '#FFF',
-            fontFamily: 'monospace',
-            zIndex: 100,
-            width: '250px',
-            boxShadow: '0 0 20px rgba(75, 0, 130, 0.5)'
-        }}>
-            {/* CRT Flash */}
-            <div style={flashStyle} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', borderBottom: '1px solid #DA70D6', paddingBottom: '5px' }}>
-                <span style={{ fontWeight: 'bold', color: '#DA70D6' }}>PERMIT OFFICE</span>
-                <SquishyButton
-                    onClick={() => setIsOpen(false)}
-                    preset="STIFF"
-                    style={{ background: 'none', border: 'none', color: '#DA70D6', cursor: 'pointer' }}
-                >
-                    [X]
-                </SquishyButton>
-            </div>
-
-            <div style={{ fontSize: '12px', marginBottom: '15px', color: '#AAA' }}>
-                "Compliance is mandatory. Happiness is optional."
-            </div>
-
-            {permitTypes.map(type => (
-                <div key={type.id} style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    marginBottom: '10px',
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    padding: '5px'
+            {isOpen && (
+                <div style={{
+                    ...containerStyle,
+                    position: 'absolute',
+                    top: '270px', // Below the button (220 + ~50)
+                    right: '20px', // Aligned with button
+                    left: 'auto', // Override default if any
+                    background: 'rgba(20, 0, 40, 0.95)',
+                    border: '2px solid #DA70D6',
+                    padding: '15px',
+                    color: '#FFF',
+                    fontFamily: 'monospace',
+                    zIndex: 100,
+                    width: '250px',
+                    boxShadow: '0 0 20px rgba(75, 0, 130, 0.5)'
                 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <span>{type.icon}</span>
-                        <span>{type.name}</span>
+                    {/* CRT Flash */}
+                    <div style={flashStyle} />
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '10px', borderBottom: '1px solid #DA70D6', paddingBottom: '5px' }}>
+                        <span style={{ fontWeight: 'bold', color: '#DA70D6' }}>PERMIT OFFICE</span>
+                        <SquishyButton
+                            onClick={() => setIsOpen(false)}
+                            preset="STIFF"
+                            style={{ background: 'none', border: 'none', color: '#DA70D6', cursor: 'pointer' }}
+                        >
+                            [X]
+                        </SquishyButton>
                     </div>
-                    <div style={{ fontWeight: 'bold', color: permits[type.id] > 0 ? '#32CD32' : '#555' }}>
-                        {permits[type.id] || 0}
+
+                    <div style={{ fontSize: '12px', marginBottom: '15px', color: '#AAA' }}>
+                        "Compliance is mandatory. Happiness is optional."
+                    </div>
+
+                    {permitTypes.map(type => (
+                        <div key={type.id} style={{
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            marginBottom: '10px',
+                            background: 'rgba(255, 255, 255, 0.05)',
+                            padding: '5px'
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                                <span>{type.icon}</span>
+                                <span>{type.name}</span>
+                            </div>
+                            <div style={{ fontWeight: 'bold', color: permits[type.id] > 0 ? '#32CD32' : '#555' }}>
+                                {permits[type.id] || 0}
+                            </div>
+                        </div>
+                    ))}
+
+                    <div style={{ fontSize: '10px', color: '#666', marginTop: '10px', borderTop: '1px solid #333', paddingTop: '5px' }}>
+                        Find Bureaucrat Desks in the world to bribe them for more permits.
                     </div>
                 </div>
-            ))}
-
-            <div style={{ fontSize: '10px', color: '#666', marginTop: '10px', borderTop: '1px solid #333', paddingTop: '5px' }}>
-                Find Bureaucrat Desks in the world to bribe them for more permits.
-            </div>
-        </div>
+            )}
+        </>
     );
 };
 

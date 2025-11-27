@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { eventBus, EVENT_TYPES } from '../systems/EventBus';
-import { audioManager } from '../engine/audio';
+import { audioSynthesizer } from '../systems/AudioSynthesizer';
 
 const CopyrightStrike = () => {
     const [isActive, setIsActive] = useState(false);

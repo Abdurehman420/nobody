@@ -37,6 +37,9 @@ export const triggerDimensionalShift = (state) => {
         permits: state.permits,
         // Visual effect flag
         shifting: true,
+        // Ensure worldOffset is a fresh object to avoid reference pollution
+        worldOffset: { x: 0, y: 0 },
+        zoom: 1.0,
     };
 };
 

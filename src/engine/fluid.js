@@ -14,9 +14,9 @@ export const calculateFluidSimulation = (state, deltaTime) => {
     // Let's say pressure is just a property we update based on flow
 
     const newNodes = nodes.map(node => {
-        let newPressure = node.pressure || 0;
+        let newPressure = Number.isFinite(node.pressure) ? node.pressure : 0;
 
-        if (node.type === 'SOURCE') {
+        if (node.type && node.type.toUpperCase() === 'SOURCE') {
             // Source nodes generate infinite pressure
             newPressure = GAME_CONFIG.PHYSICS.PRESSURE_SOURCE;
             if (state.unlockedUpgrades.includes('high_pressure_pumps')) {
@@ -100,7 +100,10 @@ export const calculateFluidSimulation = (state, deltaTime) => {
         }
 
         // Velocity = (PressureDelta / Resistance) * (1.0 - EtherDrag)
-        let velocity = (pressureDelta / resistance) * (1.0 - etherDrag);
+        let velocity = (pressureDelta / Math.max(0.01, resistance)) * (1.0 - etherDrag);
+
+        // Clamp velocity to prevent physics explosions
+        velocity = Math.max(-1000, Math.min(1000, velocity));
 
         // Upgrade: Osmotic Surge (+5% flow)
         if (state.unlockedUpgrades.includes('osmotic_surge')) {
@@ -112,15 +115,22 @@ export const calculateFluidSimulation = (state, deltaTime) => {
         }
 
         // Update flow on edge (visual only for now)
-        edge.flow = velocity;
+        edge.flow = Number.isFinite(velocity) ? velocity : 0;
 
         // Transfer pressure/fluid
         // This is a simplified model where pressure flows directly
         // ROOT CAUSE FIX: Increased transfer rate for better propagation
         const transfer = velocity * deltaTime * 2.0;
 
+        // Safety check for NaN
+        if (Number.isNaN(transfer)) return;
+
         sourceNode.pressure -= transfer;
         targetNode.pressure += transfer;
+
+        // Clamp pressure to prevent infinite buildup
+        sourceNode.pressure = Math.max(-10000, Math.min(10000, sourceNode.pressure));
+        targetNode.pressure = Math.max(-10000, Math.min(10000, targetNode.pressure));
 
         // Upgrade: Sentient Fluid (Auto-Route / Balance)
         // If pressure difference is too high, equalize faster?
@@ -146,8 +156,10 @@ export const calculateFluidSimulation = (state, deltaTime) => {
             const n2 = newNodes[i2];
             // Transfer pressure
             const transfer = (n1.pressure - n2.pressure) * 0.05; // 5% equalization
-            n1.pressure -= transfer;
-            n2.pressure += transfer;
+            if (!Number.isNaN(transfer)) {
+                n1.pressure -= transfer;
+                n2.pressure += transfer;
+            }
         }
     }
 
@@ -163,7 +175,12 @@ export const calculateFluidSimulation = (state, deltaTime) => {
     newEdges.forEach(edge => {
         // Lower threshold for flux generation so it's easier to see
         if (Math.abs(edge.flow) > fluxThreshold) {
-            let fluxGain = Math.abs(edge.flow) * 0.1;
+            // ROOT CAUSE FIX: Drastically reduced flux gain to prevent instant purple screen
+            let fluxGain = Math.abs(edge.flow) * 0.005;
+
+            // Cap per-edge gain
+            fluxGain = Math.min(fluxGain, 0.5);
+
             // Upgrade: Alchemical Fire (Burning Stardust -> Flux Boost) - Not implemented yet as active skill
             // Upgrade: Turbulent Flow bonus
             if (state.unlockedUpgrades.includes('turbulent_flow')) {
@@ -173,13 +190,27 @@ export const calculateFluidSimulation = (state, deltaTime) => {
         }
     });
 
+    // 4. Generate Flux from High Node Pressure (Accumulation)
+    // This allows "dead end" nodes to produce flux if they are highly pressurized
+    const pressureThreshold = 10; // Threshold to start generating flux
+    newNodes.forEach(node => {
+        if (node.type !== 'SOURCE' && node.pressure > pressureThreshold) {
+            let pressureGain = (node.pressure - pressureThreshold) * 0.002;
+            pressureGain = Math.min(pressureGain, 2.0); // Cap per-node gain
+            fluxGenerated += pressureGain;
+        }
+    });
+
+    // Clamp flux generated
+    fluxGenerated = Math.min(fluxGenerated, 1000); // Max 1000 flux per tick
+
     return {
         ...state,
         nodes: newNodes,
         edges: newEdges,
         resources: {
             ...resources,
-            flux: resources.flux + fluxGenerated * (state.unlockedUpgrades.includes('pixel_interpolation') ? 1.1 : 1.0),
+            flux: (resources.flux || 0) + fluxGenerated * (state.unlockedUpgrades.includes('pixel_interpolation') ? 1.1 : 1.0),
         }
     };
 };

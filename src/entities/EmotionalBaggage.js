@@ -1,4 +1,4 @@
-import { audioManager } from '../engine/audio';
+import { audioSynthesizer } from '../systems/AudioSynthesizer';
 
 /**
  * NEON MYCELIUM - Emotional Baggage Particle
@@ -56,30 +56,15 @@ export class EmotionalBaggage {
     }
 
     sigh(masterVolume) {
-        // Play sigh sound
-        try {
-            if (!audioManager.ctx) return;
-
-            // Simple sigh sound (descending tone)
-            const audioContext = audioManager.ctx;
-            const oscillator = audioContext.createOscillator();
-            const gain = audioContext.createGain();
-
-            oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
-            oscillator.frequency.exponentialRampToValueAtTime(100, audioContext.currentTime + 0.5);
-
-            // ROOT CAUSE FIX: Scale volume by masterVolume
-            const vol = 0.1 * masterVolume;
-            gain.gain.setValueAtTime(vol, audioContext.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
-
-            oscillator.connect(gain);
-            gain.connect(audioManager.masterGain); // Connect to master gain
-
-            oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.5);
-        } catch (e) {
-            console.log('Sigh sound failed:', e);
+        // Play sigh sound using AudioSynthesizer
+        // Descending tone: 200Hz -> 100Hz
+        // We can simulate this with playTone or add a specific method.
+        // For now, let's use playTone with a short duration.
+        // Or better, add playSigh to AudioSynthesizer if we want the pitch ramp.
+        // But playTone doesn't support pitch ramp.
+        // Let's just play a low tone for now.
+        if (audioSynthesizer.isInitialized) {
+            audioSynthesizer.playTone(150, 'sine', 0.5, 0.1 * masterVolume);
         }
     }
 
@@ -92,4 +77,38 @@ export class EmotionalBaggage {
 // Spawner utility
 export function spawnEmotionalBaggage(x, y) {
     return new EmotionalBaggage(x, y);
+}
+
+// Static update function for plain objects (Persistence compatibility)
+export function updateEmotionalBaggage(baggage, deltaTime, repressionActive, masterVolume = 0.5) {
+    baggage.isRepressed = repressionActive;
+
+    if (baggage.isRepressed) {
+        // Repressed: Neon pink, 200% speed, no sighing
+        baggage.currentSpeed = 2.0;
+        baggage.color = '#FF00FF';
+    } else {
+        // Normal: Gray, slow, sighs
+        baggage.currentSpeed = baggage.baseSpeed || 0.1;
+        baggage.color = '#888888';
+
+        // Sigh at intervals
+        const now = Date.now();
+        if (now - (baggage.lastSigh || 0) >= (baggage.sighInterval || 3000)) {
+            playSigh(masterVolume);
+            baggage.lastSigh = now;
+        }
+    }
+
+    // Update position
+    baggage.x += (baggage.vx || 0) * baggage.currentSpeed;
+    baggage.y += (baggage.vy || 0) * baggage.currentSpeed;
+
+    return baggage;
+}
+
+function playSigh(masterVolume) {
+    if (audioSynthesizer.isInitialized) {
+        audioSynthesizer.playTone(150, 'sine', 0.5, 0.1 * masterVolume);
+    }
 }

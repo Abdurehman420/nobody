@@ -30,6 +30,8 @@ export function SquishyButton({
                 import('../systems/AudioSynthesizer').then(({ audioSynthesizer }) => {
                     audioSynthesizer.playMechanicalClick();
                 });
+            }}
+            onClick={(e) => {
                 onClick?.(e);
             }}
             onMouseEnter={() => {

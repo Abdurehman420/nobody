@@ -1,10 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useGame } from '../context/GameContext';
+import { spawnGenericNPC, isPointInsideNPC } from '../entities/GenericNPC';
 import { renderGame } from '../engine/renderer';
 import BureaucracyModal from './BureaucracyModal';
 import { eventBus, EVENT_TYPES } from '../systems/EventBus';
 import { juiceIntegration } from '../systems/JuiceIntegration';
 import TentacleAssist from '../systems/TentacleAssist';
+import { GAME_CONFIG } from '../engine/config';
 
 const CanvasLayer = () => {
     const canvasRef = useRef(null);
@@ -147,8 +149,8 @@ const CanvasLayer = () => {
                 // Check for Generic NPC clicks (MODULE F)
                 if (state.genericNPCs) {
                     for (const npc of state.genericNPCs) {
-                        if (npc.isPointInside(worldX, worldY)) {
-                            npc.onClick();
+                        if (isPointInsideNPC(npc, worldX, worldY)) {
+                            dispatch({ type: 'CLICK_NPC', payload: { id: npc.id } });
                             return; // Handled click
                         }
                     }
@@ -315,6 +317,7 @@ const CanvasLayer = () => {
 
                             if (dist <= maxLength) {
                                 dispatch({ type: 'ADD_EDGE', payload: { sourceId: selectedNode, targetId: targetNode.id } });
+                                setSelectedNode(null); // Deselect after connecting
                             }
                         }
                     } else if (!targetNode) {
@@ -365,6 +368,7 @@ const CanvasLayer = () => {
                                     type: 'BUILD_AND_CONNECT',
                                     payload: { x: buildX, y: buildY, sourceId: selectedNode }
                                 });
+                                setSelectedNode(null); // Deselect after building
                             }
                         }
                     }
@@ -455,7 +459,7 @@ const CanvasLayer = () => {
                 tentacleAssist.current?.getTentacle() // Add tentacle data
             );
 
-            // Draw Drag Line
+            // Draw Drag Line & Feedback
             if (isDragging && selectedNode) {
                 const sourceNode = state.nodes.find(n => n.id === selectedNode);
                 if (sourceNode) {
@@ -463,18 +467,109 @@ const CanvasLayer = () => {
                     const centerY = canvas.height / 2;
 
                     // Project source node to screen
-                    // ScreenX = (NodeX - WorldOffsetX) * Zoom + CenterX
                     const sx = (sourceNode.x - renderState.worldOffset.x) * renderState.zoom + centerX;
                     const sy = (sourceNode.y - renderState.worldOffset.y) * renderState.zoom + centerY;
+
+                    // Calculate World Mouse Pos for logic checks
+                    const worldMouseX = (mousePos.x - centerX) / renderState.zoom + renderState.worldOffset.x;
+                    const worldMouseY = (mousePos.y - centerY) / renderState.zoom + renderState.worldOffset.y;
+
+                    // Check Max Length
+                    const dx = worldMouseX - sourceNode.x;
+                    const dy = worldMouseY - sourceNode.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    let maxLength = 500;
+                    if (state.unlockedUpgrades.includes('duct_tape')) maxLength *= 1.15;
+                    if (state.unlockedUpgrades.includes('infinite_duct_tape')) maxLength *= 1.5;
+                    if (state.unlockedUpgrades.includes('void_anchors')) maxLength *= 2.0;
+
+                    // Check Target Node
+                    // We can use tentacle assist or simple distance check
+                    const targetNode = state.nodes.find(n => {
+                        const ndx = n.x - worldMouseX;
+                        const ndy = n.y - worldMouseY;
+                        return (ndx * ndx + ndy * ndy) < (30 * 30);
+                    });
+
+                    let lineColor = 'rgba(255, 255, 255, 0.5)';
+                    let statusText = '';
+                    let isDash = true;
+
+                    if (targetNode && targetNode.id !== sourceNode.id) {
+                        // Hovering over another node
+                        isDash = false;
+
+                        // Check if connection exists
+                        const exists = state.edges.some(e =>
+                            (e.source === sourceNode.id && e.target === targetNode.id) ||
+                            (e.source === targetNode.id && e.target === sourceNode.id) // Fixed typo
+                        );
+                        // Double check the exists logic: (A->B) or (B->A)
+                        const reallyExists = state.edges.some(e =>
+                            (e.source === sourceNode.id && e.target === targetNode.id) ||
+                            (e.source === targetNode.id && e.target === sourceNode.id)
+                        );
+
+                        if (reallyExists) {
+                            lineColor = '#FF0000'; // Red
+                            statusText = "ALREADY CONNECTED";
+                        } else if (dist > maxLength) {
+                            lineColor = '#FF0000'; // Red
+                            statusText = "TOO FAR";
+                        } else {
+                            // Check Cost
+                            let edgeCost = GAME_CONFIG.RESOURCES.COST_EDGE;
+                            if (state.unlockedUpgrades.includes('efficient_hyphae')) edgeCost *= 0.5;
+
+                            if (state.resources.stardust < edgeCost && !state.activeEffects.god_mode) {
+                                lineColor = '#FF0000';
+                                statusText = `NEED ${edgeCost} STARDUST`;
+                            } else {
+                                lineColor = '#00FF00'; // Green
+                                statusText = "CONNECT";
+                            }
+                        }
+                    } else if (dist > maxLength) {
+                        lineColor = '#FF4444'; // Reddish
+                        statusText = "TOO FAR";
+                    } else {
+                        // Dragging to empty space -> Build Node
+                        let nodeCost = GAME_CONFIG.RESOURCES.COST_NODE;
+                        let edgeCost = GAME_CONFIG.RESOURCES.COST_EDGE;
+                        if (state.unlockedUpgrades.includes('rapid_expansion')) nodeCost *= 0.8;
+                        if (state.unlockedUpgrades.includes('efficient_hyphae')) edgeCost *= 0.5;
+
+                        // Mitosis Lottery check (approximate visual)
+                        if (state.unlockedUpgrades.includes('mitosis_lottery')) nodeCost = 0; // Optimistic visual
+
+                        const totalCost = nodeCost + edgeCost;
+
+                        if (state.resources.stardust < totalCost && !state.activeEffects.god_mode) {
+                            statusText = `NEED ${totalCost} STARDUST`;
+                            lineColor = '#FF4444';
+                        } else {
+                            statusText = "BUILD NODE";
+                        }
+                    }
 
                     ctx.beginPath();
                     ctx.moveTo(sx, sy);
                     ctx.lineTo(mousePos.x, mousePos.y);
-                    ctx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.strokeStyle = lineColor;
                     ctx.lineWidth = 2;
-                    ctx.setLineDash([5, 5]);
+                    if (isDash) ctx.setLineDash([5, 5]);
+                    else ctx.setLineDash([]);
                     ctx.stroke();
                     ctx.setLineDash([]);
+
+                    // Draw Status Text
+                    if (statusText) {
+                        ctx.font = 'bold 12px monospace';
+                        ctx.fillStyle = lineColor;
+                        ctx.textAlign = 'center';
+                        ctx.fillText(statusText, mousePos.x, mousePos.y - 20);
+                    }
                 }
             }
 

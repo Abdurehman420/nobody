@@ -69,3 +69,42 @@ export class TimeTravelerRegret {
 export function spawnTimeTravelerRegret(x, y, targetNodeId) {
     return new TimeTravelerRegret(x, y, targetNodeId);
 }
+
+// Static update function for plain objects
+export function updateTimeTravelerRegret(regret, nodes, deltaTime) {
+    if (!regret.targetNode) return 'remove';
+
+    // Find target node
+    const target = nodes.find(n => n.id === regret.targetNode);
+    if (!target) return 'remove';
+
+    // Move BACKWARDS towards source
+    const dx = target.x - regret.x;
+    const dy = target.y - regret.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 5) {
+        // Reached the node - will trigger resource subtraction
+        return 'regret';
+    }
+
+    // Move towards target (backwards in time)
+    regret.vx = (dx / dist) * (regret.speed || -1.5);
+    regret.vy = (dy / dist) * (regret.speed || -1.5);
+
+    regret.x += regret.vx;
+    regret.y += regret.vy;
+
+    // Add to trail
+    if (!regret.trail) regret.trail = [];
+    regret.trail.push({ x: regret.x, y: regret.y });
+    if (regret.trail.length > (regret.maxTrailLength || 10)) {
+        regret.trail.shift();
+    }
+
+    // Fade with age
+    regret.life -= 0.002;
+    if (regret.life <= 0) return 'remove';
+
+    return null;
+}

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useGame } from '../context/GameContext';
-import { audioManager } from '../engine/audio';
+// audioManager removed
+// import { audioManager } from '../engine/audio';
 import { audioSynthesizer } from '../systems/AudioSynthesizer';
 import { eventBus, EVENT_TYPES } from '../systems/EventBus';
 import SquishyButton from './SquishyButton';
 import { useCRTWindow } from '../hooks/useCRTWindow';
+import { PersistenceSystem } from '../systems/PersistenceSystem';
 
 const SettingsMenu = () => {
     const { state, dispatch } = useGame();
@@ -38,7 +40,7 @@ const SettingsMenu = () => {
         dispatch({ type: 'SET_MASTER_VOLUME', payload: val });
 
         // Update audio systems directly for immediate feedback
-        audioManager.setVolume(val);
+        // audioManager.setVolume(val); // Removed
         audioSynthesizer.setMasterVolume(val);
     };
 
@@ -157,7 +159,7 @@ const SettingsMenu = () => {
                             if (Math.random() < 0.5) {
                                 const newVol = volume > 0 ? 0 : 0.5;
                                 dispatch({ type: 'SET_MASTER_VOLUME', payload: newVol });
-                                audioManager.setVolume(newVol);
+                                // audioManager.setVolume(newVol); // Removed
                                 audioSynthesizer.setMasterVolume(newVol);
                                 eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
                                     message: newVol === 0 ? "Did you hear that? Neither did I." : "Noise restored. Unfortunately."
@@ -359,6 +361,124 @@ const SettingsMenu = () => {
             >
                 X
             </SquishyButton>
+
+
+
+            {/* SAVE MANAGEMENT */}
+            <div style={{ marginBottom: '15px', borderTop: '1px solid #333', paddingTop: '10px' }}>
+                <div style={{ color: '#00FFCC', fontSize: '12px', marginBottom: '8px' }}>CHRONOS PROTOCOL</div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px' }}>
+                    <SquishyButton
+                        onClick={() => {
+                            const str = PersistenceSystem.exportToString(state);
+                            navigator.clipboard.writeText(str);
+                            eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
+                                message: "Save copied to clipboard. Don't lose it."
+                            });
+                        }}
+                        preset="BOUNCY"
+                        style={{ fontSize: '10px', background: '#333', color: '#FFF' }}
+                    >
+                        COPY STRING
+                    </SquishyButton>
+
+                    <SquishyButton
+                        onClick={() => PersistenceSystem.downloadFile(state)}
+                        preset="BOUNCY"
+                        style={{ fontSize: '10px', background: '#333', color: '#FFF' }}
+                    >
+                        DOWNLOAD .VOID
+                    </SquishyButton>
+                </div>
+
+                <div style={{ marginTop: '5px' }}>
+                    <input
+                        type="file"
+                        accept=".void,.json"
+                        style={{ display: 'none' }}
+                        id="save-file-upload"
+                        onChange={(e) => {
+                            const file = e.target.files[0];
+                            if (!file) return;
+
+                            const reader = new FileReader();
+                            reader.onload = (event) => {
+                                const content = event.target.result;
+                                const newState = PersistenceSystem.importFromJSON(content);
+                                if (newState) {
+                                    dispatch({ type: 'IMPORT_SAVE', payload: newState });
+                                    eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
+                                        message: "File loaded. Welcome back to the past."
+                                    });
+                                } else {
+                                    alert("Invalid save file!");
+                                }
+                            };
+                            reader.readAsText(file);
+                        }}
+                    />
+                    <SquishyButton
+                        onClick={() => document.getElementById('save-file-upload').click()}
+                        preset="BOUNCY"
+                        style={{ width: '100%', fontSize: '10px', background: '#333', color: '#00FFCC', border: '1px dashed #00FFCC' }}
+                    >
+                        UPLOAD .VOID FILE
+                    </SquishyButton>
+                </div>
+
+                <div style={{ marginTop: '5px' }}>
+                    <SquishyButton
+                        onClick={() => {
+                            const str = prompt("Paste your save string here:");
+                            if (str) {
+                                const newState = PersistenceSystem.importFromString(str);
+                                if (newState) {
+                                    dispatch({ type: 'IMPORT_SAVE', payload: newState });
+                                    eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
+                                        message: "Timeline shifted. Hope you know what you're doing."
+                                    });
+                                } else {
+                                    alert("Invalid save string!");
+                                }
+                            }
+                        }}
+                        preset="BOUNCY"
+                        style={{ width: '100%', fontSize: '10px', background: '#333', color: '#00FFCC', border: '1px dashed #00FFCC' }}
+                    >
+                        IMPORT SAVE
+                    </SquishyButton>
+                </div>
+
+                <div style={{ marginTop: '5px' }}>
+                    <SquishyButton
+                        onClick={() => {
+                            if (confirm("Are you sure? This will wipe your local save.")) {
+                                PersistenceSystem.clear();
+                                window.location.reload();
+                            }
+                        }}
+                        preset="STIFF"
+                        style={{ width: '100%', fontSize: '10px', background: '#300', color: '#F00' }}
+                    >
+                        HARD RESET (CLEAR SAVE)
+                    </SquishyButton>
+                </div>
+            </div>
+
+            {/* MANUAL / README */}
+            <div style={{ marginBottom: '15px', borderTop: '1px solid #333', paddingTop: '10px' }}>
+                <SquishyButton
+                    onClick={() => {
+                        eventBus.emit('OPEN_README');
+                        setIsOpen(false); // Close settings to show manual
+                    }}
+                    preset="BOUNCY"
+                    style={{ width: '100%', fontSize: '12px', background: '#222', color: '#00FFFF', border: '1px solid #00FFFF' }}
+                >
+                    OPEN MANUAL.MD
+                </SquishyButton>
+            </div>
 
             {/* Version Info - Re-added as it was removed by the snippet */}
             <div style={{ fontSize: '10px', color: '#666', marginTop: '10px', borderTop: '1px solid #333', paddingTop: '5px' }}>

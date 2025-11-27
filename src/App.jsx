@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import './index.css';
 import './styles/app-juice.css';
 import { GameProvider, useGame } from './context/GameContext';
@@ -27,6 +27,7 @@ import TOSMonolith from './components/TOSMonolith';
 import SunkCostPit from './components/SunkCostPit';
 import BananaForScale from './components/BananaForScale';
 import PhilosophersStone from './components/PhilosophersStone';
+import SchrodingersCatbox from './components/SchrodingersCatbox';
 import PaidPromotionBlimp from './components/PaidPromotionBlimp';
 import NFTCollection from './components/NFTCollection';
 import MicroTransactionPopup from './components/MicroTransactionPopup';
@@ -46,8 +47,19 @@ import CreditsHallucination from './components/CreditsHallucination';
 // Import juice integration
 import { juiceIntegration } from './systems/JuiceIntegration';
 
+import ReadmeModal from './components/ReadmeModal';
+import { eventBus } from './systems/EventBus';
+
 const GameContent = () => {
   const { state, dispatch } = useGame();
+  const [showReadme, setShowReadme] = useState(false);
+
+  // Listen for manual open request
+  useEffect(() => {
+    const handleOpenReadme = () => setShowReadme(true);
+    eventBus.on('OPEN_README', handleOpenReadme);
+    return () => eventBus.off('OPEN_README', handleOpenReadme);
+  }, []);
 
   // Initialize juice systems
   useEffect(() => {
@@ -122,6 +134,14 @@ const GameContent = () => {
         <BananaForScale gameState={state} dispatch={dispatch} />
       )}
       <PhilosophersStone gameState={state} />
+      {/* Schrödinger's Catboxes */}
+      {state.schrodingerBoxes && state.schrodingerBoxes.map(box => (
+        <SchrodingersCatbox
+          key={box.id}
+          position={{ x: box.x, y: box.y }}
+          onResolve={(result) => dispatch({ type: 'RESOLVE_CATBOX', payload: { boxId: box.id, ...result } })}
+        />
+      ))}
       <PaidPromotionBlimp />
       <NFTCollection gameState={state} dispatch={dispatch} />
       <MicroTransactionPopup gameState={state} />
@@ -149,15 +169,22 @@ const GameContent = () => {
 
       {/* Credits Hallucination */}
       <CreditsHallucination />
+
+      {/* In-Game Manual (README) */}
+      <ReadmeModal forceOpen={showReadme} onClose={() => setShowReadme(false)} />
     </div>
   );
 };
 
+import ErrorBoundary from './components/ErrorBoundary';
+
 function App() {
   return (
-    <GameProvider>
-      <GameContent />
-    </GameProvider>
+    <ErrorBoundary>
+      <GameProvider>
+        <GameContent />
+      </GameProvider>
+    </ErrorBoundary>
   );
 }
 

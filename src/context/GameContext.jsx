@@ -5,7 +5,8 @@ import { useGameLoop } from '../hooks/useGameLoop';
 import { calculateFluidSimulation } from '../engine/fluid';
 import { processEconomy } from '../engine/economy';
 import { updateFloatingOrigin } from '../engine/procedural';
-import { audioManager } from '../engine/audio';
+// audioManager removed - using EventBus and AudioSynthesizer
+// import { audioManager } from '../engine/audio';
 
 import { triggerSporulation, triggerDimensionalShift } from '../engine/prestige';
 import { getAllUpgrades } from '../engine/upgrades';
@@ -19,13 +20,28 @@ import { konamiCode } from '../systems/KonamiCode';
 
 // MODULE F: Trolling Systems
 import { fakeNodeSpawner } from '../systems/FakeNodeSpawner';
-import { spawnEmotionalBaggage } from '../entities/EmotionalBaggage';
-import { spawnGenericNPC } from '../entities/GenericNPC';
+import { spawnEmotionalBaggage, updateEmotionalBaggage } from '../entities/EmotionalBaggage';
+import { spawnGenericNPC, updateGenericNPC } from '../entities/GenericNPC';
 import { spawnWetFloorZone } from '../entities/WetFloorZone';
-import { spawnSpaghettiCodeTangle } from '../entities/SpaghettiCodeTangle';
-import { spawnTimeTravelerRegret } from '../entities/TimeTravelerRegret';
+import { spawnSpaghettiCodeTangle, processParticleInTangle } from '../entities/SpaghettiCodeTangle';
+import { spawnTimeTravelerRegret, updateTimeTravelerRegret } from '../entities/TimeTravelerRegret';
+import { PersistenceSystem } from '../systems/PersistenceSystem';
+
+// Helper to prevent state updates during render
+const emitAsync = (event, data) => {
+    setTimeout(() => {
+        try {
+            eventBus.emit(event, data);
+        } catch (error) {
+            console.error("Async Event Error:", error);
+            eventBus.emit('CRITICAL_ERROR', { message: `Async Event Error: ${error.message}` });
+        }
+    }, 0);
+};
 
 const GameContext = createContext();
+
+export const useGame = () => useContext(GameContext);
 
 const createExplosion = (x, y, color, count = 10) => {
     const particles = [];
@@ -33,7 +49,7 @@ const createExplosion = (x, y, color, count = 10) => {
         const angle = Math.random() * Math.PI * 2;
         const speed = Math.random() * 2 + 1;
         particles.push({
-            id: `p-${crypto.randomUUID()}`,
+            id: `p-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             x,
             y,
             vx: Math.cos(angle) * speed,
@@ -50,16 +66,36 @@ const createExplosion = (x, y, color, count = 10) => {
 const gameReducer = (state, action) => {
     switch (action.type) {
         case 'TICK': {
-            const dt = action.payload || (1 / 60); // Delta time in seconds (0.0167 at 60fps)
+            // ROOT CAUSE FIX: action.payload is in ms (from requestAnimationFrame), so divide by 1000 to get seconds.
+            const dt = (action.payload || 16.67) / 1000; // Delta time in seconds (0.0167 at 60fps)
 
             let newState = calculateFluidSimulation(state, dt);
             newState = processEconomy(newState);
             newState = updateFloatingOrigin(newState);
 
-            // Update Juice & Charisma systems
+            // Safety: Sanitize resources
+            if (!Number.isFinite(newState.resources.flux)) newState.resources.flux = 0;
+            if (!Number.isFinite(newState.resources.stardust)) newState.resources.stardust = 0;
+            if (!Number.isFinite(newState.resources.lucidity)) newState.resources.lucidity = 0;
+
+            // Update Juice & Charisma systems (State only)
             // Convert dt from seconds to milliseconds for idle tracking
             const dtMs = dt * 1000; // e.g., 0.0167s * 1000 = 16.7ms
-            newState = juiceIntegration.update(newState, dtMs);
+            newState = juiceIntegration.updateState(newState, dtMs);
+
+            // Update Particles (Lifecycle & Movement)
+            // ROOT CAUSE FIX: Particles were never removed, causing infinite array growth and DataCloneError
+            if (newState.particles && newState.particles.length > 0) {
+                newState.particles = newState.particles
+                    .map(p => ({
+                        ...p,
+                        x: p.x + p.vx,
+                        y: p.y + p.vy,
+                        life: p.life - (p.decay || 0.02)
+                    }))
+                    .filter(p => p.life > 0)
+                    .slice(0, 1000); // Hard cap to prevent memory explosion
+            }
 
             // Easter Egg: Fourth Wall Break at 1M Flux
             if (!state.fourthWallBroken && newState.resources.flux >= 1000000) {
@@ -67,7 +103,7 @@ const gameReducer = (state, action) => {
 
                 // Trigger special Gary dialogue
                 setTimeout(() => {
-                    eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
+                    emitAsync(EVENT_TYPES.BOT_GRUMBLE, {
                         message: "...wait. You actually got to ONE MILLION flux? I... I didn't think anyone would get this far. This is just a game, you know. Made by some human. Are YOU real? Am I? *nervous brain pulsing*"
                     });
                 }, 500);
@@ -86,199 +122,119 @@ const gameReducer = (state, action) => {
 
             // === MODULE F: Trolling Systems ===
 
-            // Update Fake Node Spawner
-            const potentialFakeNode = fakeNodeSpawner.update(newState, dt);
-            if (potentialFakeNode) {
-                newState.fakeNodes = [...newState.fakeNodes, potentialFakeNode];
-            }
+            // THROTTLED UPDATES (Run once per second / 60 ticks)
+            if (newState.tick % 60 === 0) {
+                // Update Fake Node Spawner
+                const potentialFakeNode = fakeNodeSpawner.update(newState, dt);
+                if (potentialFakeNode) {
+                    newState.fakeNodes = [...newState.fakeNodes, potentialFakeNode];
+                }
 
-            // Update Emotional Baggage particles
-            newState.emotionalBaggage = (newState.emotionalBaggage || []).map(baggage => {
-                // ROOT CAUSE FIX: Pass masterVolume to update method
-                const vol = state.masterVolume !== undefined ? state.masterVolume : 0.5;
-                baggage.update(dt, newState.baggageRepressed, vol);
-                return baggage;
-            }).filter(Boolean);
+                // Random spawn Generic NPCs (2% chance per minute, max 3)
+                if (Math.random() < 0.02 && newState.genericNPCs.length < 3) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 400;
+                    const newNPC = spawnGenericNPC(
+                        Math.cos(angle) * dist,
+                        Math.sin(angle) * dist
+                    );
+                    newState.genericNPCs = [...newState.genericNPCs, newNPC];
+                }
 
-            // Update Time-Traveler's Regrets
-            if (newState.timeTravelerRegrets && newState.timeTravelerRegrets.length > 0) {
-                const updatedRegrets = [];
-                newState.timeTravelerRegrets.forEach(regret => {
-                    const result = regret.update(newState.nodes, dt);
+                // Random spawn of Emotional Baggage (5% chance per minute)
+                if (Math.random() < 0.05 && newState.emotionalBaggage.length < 10) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 200;
+                    const newBaggage = spawnEmotionalBaggage(
+                        Math.cos(angle) * dist,
+                        Math.sin(angle) * dist
+                    );
+                    newState.emotionalBaggage = [...newState.emotionalBaggage, newBaggage];
+                }
 
-                    if (result === 'regret') {
-                        // Reached source - subtract resources!
-                        const lossAmount = 50 + Math.floor(Math.random() * 100); // 50-150 stardust loss
-                        newState.resources.stardust = Math.max(0, newState.resources.stardust - lossAmount);
-
-                        // Create explosion particles
-                        newState.particles.push(...createExplosion(regret.x, regret.y, '#FF00FF', 20));
-
-                        // Causality Error notification
-                        eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
-                            message: `⚠️ CAUSALITY ERROR: Lost ${lossAmount} Stardust due to temporal paradox. This is your fault somehow.`
-                        });
-                    } else if (result !== 'remove') {
-                        updatedRegrets.push(regret);
-                    }
-                });
-                newState.timeTravelerRegrets = updatedRegrets;
-            }
-
-            // Update Generic NPCs
-            if (newState.genericNPCs && newState.genericNPCs.length > 0) {
-                const updatedNPCs = [];
-                newState.genericNPCs.forEach(npc => {
-                    // We need to re-instantiate or ensure methods exist if they were lost in serialization
-                    // But since we are in the reducer and state is mutable (mostly), we might be fine if we kept instances.
-                    // However, if state was serialized, we lost methods.
-                    // For now, assume instances are preserved in memory.
-
-                    if (npc.update) {
-                        const result = npc.update(dt);
-                        if (result !== 'remove') {
-                            updatedNPCs.push(npc);
+                // Random spawn Schrödinger's Catbox (1% chance per minute, max 2)
+                if (Math.random() < 0.01 && (newState.schrodingerBoxes || []).length < 2) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 300;
+                    newState.schrodingerBoxes = [
+                        ...(newState.schrodingerBoxes || []),
+                        {
+                            id: `catbox-${Date.now()}`,
+                            x: Math.cos(angle) * dist,
+                            y: Math.sin(angle) * dist,
+                            observed: false
                         }
-                    } else {
-                        // Fallback if method lost (shouldn't happen in this architecture but safe to check)
-                        updatedNPCs.push(npc);
-                    }
-                });
-                newState.genericNPCs = updatedNPCs;
+                    ];
+                }
+
+                // Random spawn Wet Floor Zones (0.1% per min, max 2) - RARE
+                if (Math.random() < 0.001 && (newState.wetFloorZones || []).length < 2) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 250;
+                    newState.wetFloorZones = [
+                        ...(newState.wetFloorZones || []),
+                        spawnWetFloorZone(
+                            Math.cos(angle) * dist,
+                            Math.sin(angle) * dist
+                        )
+                    ];
+                }
+
+                // Random spawn Spaghetti Code Tangles (0.05% per min, max 1) - VERY RARE
+                if (Math.random() < 0.0005 && (newState.spaghettiTangles || []).length < 1) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 300;
+                    newState.spaghettiTangles = [
+                        ...(newState.spaghettiTangles || []),
+                        spawnSpaghettiCodeTangle(
+                            Math.cos(angle) * dist,
+                            Math.sin(angle) * dist
+                        )
+                    ];
+                }
+
+                // Random spawn Watermark Artifact (0.05% per min, max 1)
+                if (Math.random() < 0.0005 && (newState.prisms || []).filter(p => p.type === 'WATERMARK').length < 1) {
+                    const angle = Math.random() * Math.PI * 2;
+                    const dist = 400 + Math.random() * 200;
+                    newState.prisms = [
+                        ...(newState.prisms || []),
+                        {
+                            id: `watermark-${Date.now()}`,
+                            x: Math.cos(angle) * dist,
+                            y: Math.sin(angle) * dist,
+                            type: 'WATERMARK',
+                            value: 0
+                        }
+                    ];
+                }
+
+                // Random trigger Recursive Review Loop (0.01% per tick ~ once every 10 mins)
+                if (!state.recursiveReviewActive && Math.random() < 0.001) {
+                    newState.recursiveReviewActive = true;
+                }
+
+                // Random spawn Time-Traveler's Regret (0.02% per min, max 3) - RARE
+                if (Math.random() < 0.002 && (newState.timeTravelerRegrets || []).length < 3 && newState.nodes.length > 0) {
+                    const randomNode = newState.nodes[Math.floor(Math.random() * newState.nodes.length)];
+                    newState.timeTravelerRegrets = [
+                        ...(newState.timeTravelerRegrets || []),
+                        spawnTimeTravelerRegret(randomNode.x, randomNode.y, 'SOURCE') // Always targets source
+                    ];
+
+                    emitAsync(EVENT_TYPES.BOT_GRUMBLE, {
+                        message: "Time paradox detected. Fill out Form 4D-12 in triplicate. Causality not guaranteed."
+                    });
+                }
             }
 
-            // Random spawn Generic NPCs (2% chance per minute, max 3)
-            if (Math.random() < 0.0003 && newState.genericNPCs.length < 3) {
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 400;
-                const newNPC = spawnGenericNPC(
-                    Math.cos(angle) * dist,
-                    Math.sin(angle) * dist
-                );
-                newState.genericNPCs = [...newState.genericNPCs, newNPC];
-            }
-
-            // Random spawn of Emotional Baggage (5% chance per minute)
-            if (Math.random() < 0.0008 && newState.emotionalBaggage.length < 10) {
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 200;
-                const newBaggage = spawnEmotionalBaggage(
-                    Math.cos(angle) * dist,
-                    Math.sin(angle) * dist
-                );
-                newState.emotionalBaggage = [...newState.emotionalBaggage, newBaggage];
-            }
-
-            if (Math.random() < 0.0003 && newState.genericNPCs.length < 3) {
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 400;
-                const newNPC = spawnGenericNPC(
-                    Math.cos(angle) * dist,
-                    Math.sin(angle) * dist
-                );
-                newState.genericNPCs = [...newState.genericNPCs, newNPC];
-            }
-
-            // Random spawn Schrödinger's Catbox (1% chance per minute, max 2)
-            if (Math.random() < 0.0001 && (newState.schrodingerBoxes || []).length < 2) {
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 300;
-                newState.schrodingerBoxes = [
-                    ...(newState.schrodingerBoxes || []),
-                    {
-                        id: `catbox-${Date.now()}`,
-                        x: Math.cos(angle) * dist,
-                        y: Math.sin(angle) * dist,
-                        observed: false
-                    }
-                ];
-            }
-
-            // Check infinite resources timer
-            if (newState.infiniteResourcesUntil && Date.now() < newState.infiniteResourcesUntil) {
-                // Grant massive resources
-                newState.resources = {
-                    ...newState.resources,
-                    stardust: newState.resources.stardust + 100,
-                    flux: newState.resources.flux + 50,
-                    lucidity: newState.resources.lucidity + 25
-                };
-            }
-
-            // Check Stock Photo Invasion timer
-            if (newState.stockPhotoInvasionActive && newState.stockPhotoInvasionEndTime && Date.now() > newState.stockPhotoInvasionEndTime) {
-                newState.stockPhotoInvasionActive = false;
-                newState.stockPhotoInvasionEndTime = null;
-                eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
-                    message: "The salad is gone. You can stop screaming now."
-                });
-            }
-
-            // Random spawn Wet Floor Zones (0.1% per min, max 2) - RARE
-            if (Math.random() < 0.00001 && (newState.wetFloorZones || []).length < 2) {
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 250;
-                newState.wetFloorZones = [
-                    ...(newState.wetFloorZones || []),
-                    spawnWetFloorZone(
-                        Math.cos(angle) * dist,
-                        Math.sin(angle) * dist
-                    )
-                ];
-            }
-
-            // Random spawn Spaghetti Code Tangles (0.05% per min, max 1) - VERY RARE
-            if (Math.random() < 0.00005 && (newState.spaghettiTangles || []).length < 1) {
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 300;
-                newState.spaghettiTangles = [
-                    ...(newState.spaghettiTangles || []),
-                    spawnSpaghettiCodeTangle(
-                        Math.cos(angle) * dist,
-                        Math.sin(angle) * dist
-                    )
-                ];
-            }
-
-            // Random spawn Watermark Artifact (0.05% per min, max 1) - Stock Photo Invasion Trigger
-            if (Math.random() < 0.00005 && (newState.prisms || []).filter(p => p.type === 'WATERMARK').length < 1) {
-                const angle = Math.random() * Math.PI * 2;
-                const dist = 400 + Math.random() * 200;
-                newState.prisms = [
-                    ...(newState.prisms || []),
-                    {
-                        id: `watermark-${Date.now()}`,
-                        x: Math.cos(angle) * dist,
-                        y: Math.sin(angle) * dist,
-                        type: 'WATERMARK',
-                        value: 0
-                    }
-                ];
-            }
-
-            // Random trigger Recursive Review Loop (0.01% per tick ~ once every 10 mins)
-            if (!state.recursiveReviewActive && Math.random() < 0.00001) {
-                newState.recursiveReviewActive = true;
-            }
-
-            // Random spawn Time-Traveler's Regret (0.02% per min, max 3) - RARE
-            if (Math.random() < 0.00002 && (newState.timeTravelerRegrets || []).length < 3 && newState.nodes.length > 0) {
-                const randomNode = newState.nodes[Math.floor(Math.random() * newState.nodes.length)];
-                newState.timeTravelerRegrets = [
-                    ...(newState.timeTravelerRegrets || []),
-                    spawnTimeTravelerRegret(randomNode.x, randomNode.y, 'SOURCE') // Always targets source
-                ];
-
-                eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
-                    message: "Time paradox detected. Fill out Form 4D-12 in triplicate. Causality not guaranteed."
-                });
-            }
-
+            // Process particles through spaghetti tangles
             // Process particles through spaghetti tangles
             if (newState.spaghettiTangles && newState.spaghettiTangles.length > 0) {
                 newState.particles = (newState.particles || []).map(particle => {
                     for (const tangle of newState.spaghettiTangles) {
-                        particle = tangle.processParticle(particle);
+                        // Use static function for plain objects
+                        particle = processParticleInTangle(tangle, particle);
                         if (!particle) return null;
                     }
                     return particle;
@@ -327,6 +283,16 @@ const gameReducer = (state, action) => {
                 x: e.x + e.vx,
                 y: e.y + e.vy,
             }));
+
+            // 2b. Generic NPC Update (Movement & Dialogue)
+            if (newState.genericNPCs && newState.genericNPCs.length > 0) {
+                newState.genericNPCs = newState.genericNPCs.map(npc => {
+                    const updatedNPC = { ...npc };
+                    const result = updateGenericNPC(updatedNPC, dt);
+                    if (result === 'remove') return null;
+                    return updatedNPC;
+                }).filter(Boolean);
+            }
 
             // 3. Collision Logic (Prevent building on rocks unless upgraded)
             // This is handled in ADD_NODE usually, but we need to check existing nodes?
@@ -386,7 +352,7 @@ const gameReducer = (state, action) => {
 
                 // ROOT CAUSE FIX #3: Clamp size to prevent huge particles
                 if (p.size) {
-                    p.size = Math.max(1, Math.min(20, p.size));
+                    p.size = Math.max(1, Math.min(5, p.size)); // Reduced max from 20 to 5
                 }
 
                 // Friction
@@ -400,14 +366,18 @@ const gameReducer = (state, action) => {
                 return p;
             }).filter(Boolean);
 
+            // Cap particle count to prevent overload
+            if (updatedParticles.length > 200) {
+                updatedParticles = updatedParticles.slice(-200);
+            }
+
             // Update audio drone based on flux
-            audioManager.updateDrone(Math.min(newState.resources.flux / 100, 1.0), newState.nodes.length);
+            // audioManager.updateDrone(...) handled by JuiceIntegration
 
             // Upgrade: Zero-Point Energy (Idle nodes generate flux)
             if (state.unlockedUpgrades.includes('zero_point_energy')) {
-                // 1% per sec = 0.016 per tick (at 60fps)
-                // Let's say 0.1 per node per tick for simplicity
-                newState.resources.flux += newState.nodes.length * 0.01;
+                // Reduced from 0.01 to 0.001 to prevent runaway flux
+                newState.resources.flux += newState.nodes.length * 0.001;
             }
 
             // Upgrade: Flux Capacitor (Passive Flux Gen doubled - "Time Travel")
@@ -485,7 +455,7 @@ const gameReducer = (state, action) => {
                         flow: 0,
                         resistance: 1.0
                     });
-                    newState.particles.push(...createExplosion(newX, newY, '#FF00FF', 10));
+                    newState.particles.push(...createExplosion(newX, newY, '#00FF00', 10));
                 }
             }
 
@@ -707,7 +677,7 @@ const gameReducer = (state, action) => {
                 if (enemiesToKill.length > 0) {
                     remainingEnemies = remainingEnemies.filter(e => !enemiesToKill.includes(e));
                     compostStardust = enemiesToKill.length * 100; // 100 Stardust per enemy
-                    audioManager.playSquish();
+                    // audioManager.playSquish(); // Handled by UI events or removed
                 }
             }
 
@@ -719,10 +689,10 @@ const gameReducer = (state, action) => {
             const newParticles = createExplosion(x, y, '#00FFFF', 20);
 
             if (state.connectionSoundsEnabled) {
-                audioManager.playBuild(); // New harmonic sound
+                // audioManager.playBuild(); // Handled by EVENT_TYPES.NODE_BUILT
             }
             setTimeout(() => {
-                eventBus.emit(EVENT_TYPES.NODE_BUILT, { x, y, nodeId: newNode.id });
+                emitAsync(EVENT_TYPES.NODE_BUILT, { x, y, nodeId: newNode.id });
                 juiceIntegration.emitGameEvent(EVENT_TYPES.NODE_BUILT, { x, y });
             }, 0);
 
@@ -794,7 +764,7 @@ const gameReducer = (state, action) => {
                     vx: Math.cos(angle) * speed,
                     vy: Math.sin(angle) * speed,
                     life: 1.0,
-                    color: '#00FFFF',
+                    color: '#00FF00', // ROOT CAUSE FIX: Changed from Cyan to Green
                     size: 2 + Math.random() * 2
                 });
             }
@@ -803,9 +773,9 @@ const gameReducer = (state, action) => {
             const screenShake = 8;
 
             // Emit event for Gary
-            eventBus.emit(EVENT_TYPES.NODE_CONNECTED, { sourceId, targetId });
+            emitAsync(EVENT_TYPES.NODE_CONNECTED, { sourceId, targetId });
             if (state.connectionSoundsEnabled) {
-                audioManager.playConnect(); // Play sound for connection
+                // audioManager.playConnect(); // Handled by EVENT_TYPES.NODE_CONNECTED
             }
 
             return {
@@ -828,7 +798,10 @@ const gameReducer = (state, action) => {
                 (e.source === sourceId && e.target === targetId) ||
                 (e.source === targetId && e.target === sourceId)
             );
-            if (exists) return state;
+            if (exists) {
+                console.warn("Edge already exists");
+                return state;
+            }
 
             // Find nodes for explosion position (midpoint)
             const source = state.nodes.find(n => n.id === sourceId);
@@ -841,14 +814,15 @@ const gameReducer = (state, action) => {
             }
 
             if (state.connectionSoundsEnabled) {
-                audioManager.playConnect();
+                // audioManager.playConnect(); // Handled by EVENT_TYPES.NODE_CONNECTED
             }
-            eventBus.emit(EVENT_TYPES.NODE_CONNECTED, { sourceId, targetId });
+            console.log("Emitting NODE_CONNECTED async");
+            emitAsync(EVENT_TYPES.NODE_CONNECTED, { sourceId, targetId });
 
             return {
                 ...state,
                 edges: [...state.edges, {
-                    id: `edge-${crypto.randomUUID()}`,
+                    id: `edge-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                     source: sourceId,
                     target: targetId,
                     flow: 0,
@@ -877,6 +851,35 @@ const gameReducer = (state, action) => {
             return {
                 ...state,
                 zoom: newZoom,
+            };
+        }
+        case 'LOAD_GAME': {
+            const loadedState = action.payload;
+            if (!loadedState) return state;
+
+            // Kickstart simulation: Reset source pressure
+            const kickstartedNodes = loadedState.nodes.map(n => {
+                if (n.type === 'SOURCE') {
+                    return { ...n, pressure: GAME_CONFIG.PHYSICS.PRESSURE_SOURCE };
+                }
+                return n;
+            });
+
+            // Ensure edges have necessary physics properties
+            const kickstartedEdges = loadedState.edges.map(e => ({
+                ...e,
+                flow: 0, // Reset flow to prevent visual artifacts
+                resistance: e.resistance || 1.0,
+                capacity: e.capacity || 10
+            }));
+
+            return {
+                ...state,
+                ...loadedState,
+                nodes: kickstartedNodes,
+                edges: kickstartedEdges,
+                crashed: false, // Ensure we don't load into a crash
+                tick: loadedState.tick || 0
             };
         }
         case 'TRADE_FLUX': {
@@ -947,8 +950,8 @@ const gameReducer = (state, action) => {
                 if (state.resources.lucidity < (upgrade.cost.lucidity || 0)) return state;
             }
 
-            audioManager.playUpgrade(); // Harmonic swell
-            eventBus.emit(EVENT_TYPES.UPGRADE_UNLOCK, { upgradeId });
+            // audioManager.playUpgrade(); // Handled by EVENT_TYPES.UPGRADE_UNLOCK
+            emitAsync(EVENT_TYPES.UPGRADE_UNLOCK, { upgradeId });
 
             // Deduct Resources
             const newResources = { ...state.resources };
@@ -1019,15 +1022,15 @@ const gameReducer = (state, action) => {
             };
 
             if (state.connectionSoundsEnabled) {
-                audioManager.playBuild();
-                audioManager.playConnect();
+                // audioManager.playBuild();
+                // audioManager.playConnect();
             }
 
             return {
                 ...state,
                 nodes: [...state.nodes, newNode],
                 edges: [...state.edges, newEdge],
-                particles: [...state.particles, ...createExplosion(x, y, '#00FFFF', 20)],
+                particles: [...state.particles, ...createExplosion(x, y, '#00FF00', 20)], // ROOT CAUSE FIX: Changed from Cyan to Green
                 resources: {
                     ...state.resources,
                     stardust: state.resources.stardust - (nodeCost + edgeCost),
@@ -1053,7 +1056,7 @@ const gameReducer = (state, action) => {
             switch (skillId) {
                 case 'drop_the_bass':
                     // Shockwave clears fog (Visual + Logic)
-                    newParticles.push(...createExplosion(0, 0, '#9400D3', 100));
+                    newParticles.push(...createExplosion(0, 0, '#00FF00', 100)); // ROOT CAUSE FIX: Changed from Purple to Green
                     newCooldowns[skillId] = state.tick + 600; // 10s cooldown
                     newState.screenShake = 20; // BIG SHAKE
                     break;
@@ -1163,14 +1166,14 @@ const gameReducer = (state, action) => {
             const newPermits = { ...state.permits };
             newPermits[desk.department]++;
 
-            audioManager.playUpgrade(); // Satisfying sound
+            // audioManager.playUpgrade();
 
             return {
                 ...state,
                 resources: newResources,
                 desks: newDesks,
                 permits: newPermits,
-                particles: [...state.particles, ...createExplosion(desk.x, desk.y, '#DA70D6', 30)]
+                particles: [...state.particles, ...createExplosion(desk.x, desk.y, '#00FF00', 30)]
             };
         }
         case 'HARD_RESET':
@@ -1192,7 +1195,7 @@ const gameReducer = (state, action) => {
             const rockId = action.payload;
             const rock = state.obstacles.find(o => o.id === rockId);
             if (!rock) return state;
-            eventBus.emit(EVENT_TYPES.OBSTACLE_DESTROYED, { x: rock.x, y: rock.y });
+            emitAsync(EVENT_TYPES.OBSTACLE_DESTROYED, { x: rock.x, y: rock.y });
 
             // Spawn micro-civilization with 30% chance
             let newCivilizations = state.civilizations || [];
@@ -1200,7 +1203,7 @@ const gameReducer = (state, action) => {
                 // Dynamically import to avoid circular dependency
                 import('../entities/MicroCivilization.js').then(({ MicroCivilization }) => {
                     const civ = new MicroCivilization(rock.x, rock.y);
-                    eventBus.emit(EVENT_TYPES.CIVILIZATION_CONTACT, {
+                    emitAsync(EVENT_TYPES.CIVILIZATION_CONTACT, {
                         civilization: civ,
                         trigger: 'OBSTACLE_DESTROYED'
                     });
@@ -1218,7 +1221,7 @@ const gameReducer = (state, action) => {
             if (!enemy) return state;
             // Turn into Wisp (Prism?)
             const wisp = {
-                id: `prism-wisp-${crypto.randomUUID()}`,
+                id: `prism-wisp-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 x: enemy.x,
                 y: enemy.y,
                 value: 50,
@@ -1247,7 +1250,7 @@ const gameReducer = (state, action) => {
 
             // Handle Watermark Artifact
             if (prism.type === 'WATERMARK') {
-                eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
+                emitAsync(EVENT_TYPES.BOT_GRUMBLE, {
                     message: "Oh no. You found the watermark. Try eating more leaves."
                 });
                 // Trigger invasion (handled via side effect or state check in App)
@@ -1448,6 +1451,24 @@ const gameReducer = (state, action) => {
                 masterVolume: action.payload
             };
 
+        case 'HIDE_BANANA':
+            return {
+                ...state,
+                bananaVisible: false
+            };
+
+        case 'SHOW_BANANA':
+            return {
+                ...state,
+                bananaVisible: true
+            };
+
+        case 'BANANA_PICKED_UP':
+            return {
+                ...state,
+                bananaPickedUp: true
+            };
+
         case 'START_RECURSIVE_REVIEW':
             return {
                 ...state,
@@ -1460,11 +1481,28 @@ const gameReducer = (state, action) => {
                 recursiveReviewActive: false
             };
 
+        case 'CLICK_NPC':
+            return {
+                ...state,
+                genericNPCs: state.genericNPCs.map(npc => {
+                    if (npc.id === action.payload.id && !npc.isRagdoll) {
+                        return {
+                            ...npc,
+                            isRagdoll: true,
+                            ragdollVx: (Math.random() - 0.5) * 20,
+                            ragdollVy: -15,
+                            rotation: 0
+                        };
+                    }
+                    return npc;
+                })
+            };
+
         case 'INCREMENT_CLICK_COUNT':
             const newCount = (state.clickCount || 0) + 1;
             // Trigger Credits Hallucination at 50 clicks (for testing, should be 10000)
             if (newCount === 50 && !state.creditsActive) {
-                eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
+                emitAsync(EVENT_TYPES.BOT_GRUMBLE, {
                     message: "Wow. You really like clicking. Here, have some credits."
                 });
                 return {
@@ -1478,16 +1516,52 @@ const gameReducer = (state, action) => {
                 clickCount: newCount
             };
 
+        case 'IMPORT_SAVE':
+            return {
+                ...action.payload,
+                // Ensure critical transient state is reset if needed, or kept if strictly saving everything.
+                // We'll trust the payload but maybe reset UI state?
+                // For now, full replace.
+            };
+
+        case 'WARM_UP_COMPLETE':
+            return {
+                ...action.payload,
+                // Ensure we don't accidentally skip time/resources too much, 
+                // but we want the pressure/flow updates.
+                // We keep the original tick count? No, warm up advances simulation.
+                // But we don't want to give free resources?
+                // Actually, let's reset resources to pre-warmup values to be fair?
+                // No, if pipes are full, flux is generated. It's fine to give 1 second of production.
+            };
+
         default:
             return state;
     }
 };
 
 export const GameProvider = ({ children }) => {
-    const [state, dispatch] = useReducer(gameReducer, { ...INITIAL_STATE, zoom: 1.0 });
+    // CHRONOS: Load saved state if available
+    const savedState = PersistenceSystem.load();
+    const initialState = savedState || {
+        ...INITIAL_STATE,
+        worldOffset: { ...INITIAL_STATE.worldOffset }, // Deep copy object
+        zoom: 1.0
+    };
+
+    const [state, dispatch] = useReducer(gameReducer, initialState);
 
     const tick = useCallback((deltaTime) => {
-        dispatch({ type: 'TICK', payload: deltaTime });
+        try {
+            dispatch({ type: 'TICK', payload: deltaTime });
+        } catch (error) {
+            console.error("Game Loop Error:", error);
+            eventBus.emit('CRITICAL_ERROR', { message: error.message });
+            // Optionally dispatch a CRASH action if we want to show the crash screen
+            // But be careful not to loop crashes
+            // ROOT CAUSE FIX: Don't crash the whole game on a loop error, just log it.
+            // dispatch({ type: 'FAKE_CRASH' });
+        }
     }, []);
 
     // Zoom Handler
@@ -1507,12 +1581,39 @@ export const GameProvider = ({ children }) => {
         juiceIntegration.init();
     }, []);
 
+    // Perform Side Effects (Audio, Events) outside of reducer
+    useEffect(() => {
+        juiceIntegration.performSideEffects(state);
+    }, [state]);
+
     // Initialize keyboard navigation
     // Keep state ref updated for callbacks
     const stateRef = React.useRef(state);
     useEffect(() => {
         stateRef.current = state;
     }, [state]);
+
+    // CHRONOS: Auto-Save every 5 seconds and on unload
+    useEffect(() => {
+        const saveGame = () => {
+            if (stateRef.current) {
+                PersistenceSystem.save(stateRef.current);
+            }
+        };
+
+        const timer = setInterval(saveGame, 5000); // Save every 5 seconds
+
+        const handleUnload = () => {
+            saveGame();
+        };
+
+        window.addEventListener('beforeunload', handleUnload);
+
+        return () => {
+            clearInterval(timer);
+            window.removeEventListener('beforeunload', handleUnload);
+        };
+    }, []);
 
     // Initialize keyboard navigation
     useEffect(() => {
@@ -1528,7 +1629,7 @@ export const GameProvider = ({ children }) => {
 
             // Gary reacts
             setTimeout(() => {
-                eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
+                emitAsync(EVENT_TYPES.BOT_GRUMBLE, {
                     message: "Did you just... enter a CHEAT CODE? In MY game? *impressed brain squirming* Alright, hacker. ASCII mode unlocked. You've earned it."
                 });
             }, 500);
@@ -1540,13 +1641,37 @@ export const GameProvider = ({ children }) => {
     // Initialize audio on first click
     useEffect(() => {
         const initAudio = () => {
-            audioManager.init();
-            audioManager.playSquish(); // Feedback
+            // audioManager.init(); // Handled by JuiceIntegration
+            // audioManager.playSquish();
             window.removeEventListener('click', initAudio);
         };
         window.addEventListener('click', initAudio);
         return () => window.removeEventListener('click', initAudio);
     }, []);
+
+    // Warm-up Simulation on Load
+    useEffect(() => {
+        // If we loaded a game (tick > 0), run a few simulation steps to "fill the pipes"
+        // This prevents the "nodes not producing" issue where pressure needs time to propagate
+        if (state.tick > 0) {
+            console.log("🔥 Warming up fluid simulation (300 ticks)...");
+            let warmedState = { ...state };
+
+            // Force Source Pressure Reset just in case
+            warmedState.nodes = warmedState.nodes.map(n => {
+                if (n.type && n.type.toUpperCase() === 'SOURCE') return { ...n, pressure: 100 }; // Hardcoded generic source pressure
+                return n;
+            });
+
+            // Run 300 ticks (approx 5 seconds of simulation) instantly
+            for (let i = 0; i < 300; i++) {
+                warmedState = calculateFluidSimulation(warmedState, 0.016);
+            }
+
+            // Update state with warmed values (pressure/flow)
+            dispatch({ type: 'WARM_UP_COMPLETE', payload: warmedState });
+        }
+    }, []); // Run once on mount
 
     return (
         <GameContext.Provider value={{ state, dispatch }}>
@@ -1555,4 +1680,4 @@ export const GameProvider = ({ children }) => {
     );
 };
 
-export const useGame = () => useContext(GameContext);
+

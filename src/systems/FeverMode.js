@@ -17,6 +17,10 @@ class FeverMode {
     /**
      * Update (called each tick)
      */
+    /**
+     * Update (called each tick)
+     * Returns true if state changed (activation/deactivation)
+     */
     update(gameState, deltaTime) {
         const { flux, maxFlux } = gameState.resources;
         const isAtMax = flux >= (maxFlux || 1000);
@@ -25,23 +29,25 @@ class FeverMode {
             this.fluxMaxDuration += deltaTime;
 
             if (!this.isActive && this.fluxMaxDuration >= this.ACTIVATION_THRESHOLD) {
-                this.activate();
+                this.isActive = true;
+                this.activationTime = Date.now();
+                return 'ACTIVATE';
             }
         } else {
             if (this.isActive) {
-                this.deactivate();
+                this.isActive = false;
+                this.fluxMaxDuration = 0;
+                return 'DEACTIVATE';
             }
             this.fluxMaxDuration = 0;
         }
+        return null;
     }
 
     /**
-     * Activate Fever Mode
+     * Perform side effects for activation
      */
-    activate() {
-        this.isActive = true;
-        this.activationTime = Date.now();
-
+    triggerActivationEffects() {
         // Override CSS variables for golden theme
         document.documentElement.style.setProperty('--color-portal-green', '#FFD700');
         document.documentElement.style.setProperty('--color-neon-green', '#FFD700');
@@ -56,11 +62,9 @@ class FeverMode {
     }
 
     /**
-     * Deactivate Fever Mode
+     * Perform side effects for deactivation
      */
-    deactivate() {
-        this.isActive = false;
-
+    triggerDeactivationEffects() {
         // Restore original colors
         document.documentElement.style.setProperty('--color-portal-green', '#32CD32');
         document.documentElement.style.setProperty('--color-neon-green', '#32CD32');

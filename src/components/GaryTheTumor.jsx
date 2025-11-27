@@ -44,32 +44,44 @@ export default function GaryTheTumor({ gameState }) {
         };
     }, []);
 
-    // Eye tracking - follow cursor
+    // Eye tracking - follow cursor (Throttled)
     useEffect(() => {
+        let animationFrameId;
+
         const handleMouseMove = (e) => {
             if (!garyRef.current) return;
 
-            const rect = garyRef.current.getBoundingClientRect();
-            const garyX = rect.left + rect.width / 2;
-            const garyY = rect.top + rect.height / 2;
+            // Cancel previous frame to prevent stacking
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
 
-            const dx = e.clientX - garyX;
-            const dy = e.clientY - garyY;
-            const distance = Math.sqrt(dx * dx + dy * dy);
+            animationFrameId = requestAnimationFrame(() => {
+                if (!garyRef.current) return;
 
-            // Limit eye movement range
-            const maxDistance = 8;
-            const cappedDistance = Math.min(distance, 100);
-            const ratio = cappedDistance / 100;
+                const rect = garyRef.current.getBoundingClientRect();
+                const garyX = rect.left + rect.width / 2;
+                const garyY = rect.top + rect.height / 2;
 
-            const eyeX = (dx / distance) * maxDistance * ratio;
-            const eyeY = (dy / distance) * maxDistance * ratio;
+                const dx = e.clientX - garyX;
+                const dy = e.clientY - garyY;
+                const distance = Math.sqrt(dx * dx + dy * dy);
 
-            setEyePosition({ x: eyeX, y: eyeY });
+                // Limit eye movement range
+                const maxDistance = 8;
+                const cappedDistance = Math.min(distance, 100);
+                const ratio = cappedDistance / 100;
+
+                const eyeX = (dx / distance) * maxDistance * ratio;
+                const eyeY = (dy / distance) * maxDistance * ratio;
+
+                setEyePosition({ x: eyeX, y: eyeY });
+            });
         };
 
         window.addEventListener('mousemove', handleMouseMove);
-        return () => window.removeEventListener('mousemove', handleMouseMove);
+        return () => {
+            window.removeEventListener('mousemove', handleMouseMove);
+            if (animationFrameId) cancelAnimationFrame(animationFrameId);
+        };
     }, []);
 
     useEffect(() => {

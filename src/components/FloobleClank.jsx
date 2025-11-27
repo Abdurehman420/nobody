@@ -101,8 +101,13 @@ const FloobleClank = ({ gameState, dispatch }) => {
         setRotations(prev => prev + 1);
 
         // Gary dialogue
+        // Gary dialogue
+        const messages = [
+            "Oh, you found the repression lever. Good. Keep cranking. If you stop, the feelings come back. And nobody wants to hear that suitcase cry.",
+            "It Clanks Floobles."
+        ];
         eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {
-            message: "Oh, you found the repression lever. Good. Keep cranking. If you stop, the feelings come back. And nobody wants to hear that suitcase cry."
+            message: messages[Math.floor(Math.random() * messages.length)]
         });
     };
 
@@ -129,6 +134,32 @@ const FloobleClank = ({ gameState, dispatch }) => {
             zIndex: 100,
             fontFamily: 'monospace'
         }}>
+            {/* Curved Text Label */}
+            <svg width="120" height="120" viewBox="0 0 120 120" style={{
+                position: 'absolute',
+                top: '-25px',
+                left: '-10px',
+                pointerEvents: 'none',
+                zIndex: 10,
+                overflow: 'visible'
+            }}>
+                <defs>
+                    <path id="floobleCurve" d="M 15,60 A 45,45 0 0,1 105,60" />
+                </defs>
+                <text width="120">
+                    <textPath href="#floobleCurve" startOffset="50%" textAnchor="middle" style={{
+                        fill: '#FF6B9D',
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                        fontFamily: 'monospace',
+                        letterSpacing: '1px',
+                        filter: 'drop-shadow(0 0 5px #FF6B9D)'
+                    }}>
+                        FLOOBLE CLANK
+                    </textPath>
+                </text>
+            </svg>
+
             {/* Lever */}
             <div
                 ref={leverRef}

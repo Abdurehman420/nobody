@@ -218,11 +218,25 @@ export class DialogueGenerator {
      */
     generateInsult(civName, reason = 'expansion') {
         const insultTemplates = [
+            // Expansion Complaints
             () => `"${civName}" here. Your slime mold consumed our sacred spire. Compensate or perish.`,
             () => `Notice of Eviction from ${civName}: Your network just ate my garage. Rude.`,
             () => `${civName} demands tribute. You exist too loudly in our dimension.`,
             () => `Formal complaint from ${civName}: The Flux pollution is giving us migraines.`,
             () => `${civName} says: We know what you're doing. The void remembers. Pay up.`,
+
+            // Flux Denial / Resource Complaints
+            () => `${civName} is starving! You hoard the Flux while we wither. Shame!`,
+            () => `We asked for a cup of Flux. You gave us silence. ${civName} will remember this.`,
+            () => `Greedy giant! ${civName} needs energy to watch reality TV. Share or suffer.`,
+            () => `Your refusal to share Flux has been noted in the Galactic Grudge Ledger.`,
+            () => `So you choose to keep it all? ${civName} hopes your nodes get tangled.`,
+
+            // Petty Grievances
+            () => `${civName} doesn't like your color scheme. Change it or war.`,
+            () => `Your vibrations are off-key. ${civName} demands you tune your existence.`,
+            () => `We saw you touch that asteroid. It was ours. ${civName} claims dibs.`,
+            () => `Stop looking at us. ${civName} values privacy.`,
         ];
 
         return randomFrom(insultTemplates)();
@@ -236,19 +250,33 @@ export class DialogueGenerator {
             DIPLOMATIC: [
                 `${civName} formally requests relocation assistance. We promise not to bite.`,
                 `${civName} proposes mutual cooperation. Benefits include: not destroying you.`,
+                `Greetings from ${civName}. We come in peace (mostly). Do you have snacks?`,
+                `${civName} admires your efficiency. Can we borrow some entropy?`,
             ],
             AGGRESSIVE: [
                 `${civName} demands immediate cessation of expansion or face consequences.`,
                 `This is your final warning from ${civName}. Cease and desist. Or else.`,
+                `Your nodes look flammable. Just an observation from ${civName}.`,
+                `${civName} is charging their lasers. Just in case.`,
             ],
             PARANOID: [
                 `${civName} suspects ulterior motives. Explain yourself. Now.`,
                 `We're watching you. - ${civName}. Always watching.`,
+                `Are you a simulation? ${civName} demands proof of consciousness.`,
+                `Stop reading our thoughts! ${civName} wears tinfoil hats for a reason.`,
             ],
             GREEDY: [
                 `${civName} offers protection services. 500 Stardust per tick. Non-negotiable.`,
                 `${civName} here. Pay tribute or we tell the others about your... activities.`,
+                `We found some Flux. It's ours now. Unless you pay double. - ${civName}`,
+                `${civName} is running a fundraiser. Donate or get invaded.`,
             ],
+            PASSIVE_AGGRESSIVE: [
+                `Oh, so you're just going to build there? Okay. ${civName} is fine with it. Totally fine.`,
+                `Nice network. Shame if something... happened to it. Love, ${civName}.`,
+                `We didn't want that sector anyway. You can have our garbage. - ${civName}`,
+                `Did you get our last message? No? Typical.`,
+            ]
         };
 
         const options = templates[personality] || templates.DIPLOMATIC;

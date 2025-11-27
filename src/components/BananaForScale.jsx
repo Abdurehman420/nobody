@@ -22,9 +22,11 @@ const BananaForScale = ({ gameState, dispatch }) => {
     const toScreen = (x, y) => {
         const centerX = window.innerWidth / 2;
         const centerY = window.innerHeight / 2;
+        const offsetX = gameState.worldOffset ? gameState.worldOffset.x : 0;
+        const offsetY = gameState.worldOffset ? gameState.worldOffset.y : 0;
         return {
-            x: (x - gameState.worldOffset.x) * gameState.zoom + centerX,
-            y: (y - gameState.worldOffset.y) * gameState.zoom + centerY
+            x: (x - offsetX) * gameState.zoom + centerX,
+            y: (y - offsetY) * gameState.zoom + centerY
         };
     };
 
@@ -66,6 +68,7 @@ const BananaForScale = ({ gameState, dispatch }) => {
                         const dist = Math.sqrt(dx * dx + dy * dy);
 
                         if (dist < (radius * gameState.zoom + bananaRadius)) {
+                            // console.log(`Collision! ${type} Dist: ${dist}, Threshold: ${radius * gameState.zoom + bananaRadius}`);
                             // Overlap!
                             const id = entity.id || `${type}-${entity.x}-${entity.y}`;
 
@@ -99,7 +102,10 @@ const BananaForScale = ({ gameState, dispatch }) => {
                     };
 
                     // Check all entities
-                    if (gameState.nodes) gameState.nodes.forEach(n => checkCollision(n, n.name || 'NODE', 30));
+                    if (gameState.nodes) {
+                        // console.log('Checking nodes:', gameState.nodes.length);
+                        gameState.nodes.forEach(n => checkCollision(n, n.name || 'NODE', 30));
+                    }
                     if (gameState.enemies) gameState.enemies.forEach(e => checkCollision(e, 'ENEMY', e.radius));
                     if (gameState.obstacles) gameState.obstacles.forEach(o => checkCollision(o, 'OBSTACLE', o.radius));
                     if (gameState.genericNPCs) gameState.genericNPCs.forEach(n => checkCollision(n, 'NPC', 20));
@@ -151,8 +157,8 @@ const BananaForScale = ({ gameState, dispatch }) => {
         // Hide banana
         dispatch({ type: 'HIDE_BANANA' });
 
-        // Return after 3-20 minutes
-        const returnTime = (3 + Math.random() * 17) * 60 * 1000;
+        // Return after 10-30 seconds (User complained about 3-20 minutes)
+        const returnTime = (10 + Math.random() * 20) * 1000;
         setTimeout(() => {
             dispatch({ type: 'SHOW_BANANA' });
             eventBus.emit(EVENT_TYPES.BOT_GRUMBLE, {

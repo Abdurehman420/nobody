@@ -12,6 +12,7 @@ const PinealGland = () => {
     if (state.resources.lucidity < 50 && state.dimension === 1) return null;
 
     const handleShift = () => {
+        console.log("Pineal Gland Shift Clicked. Lucidity:", state.resources.lucidity);
         if (window.confirm("Are you sure? This will RESET your world but shift you to the next Dimension.")) {
             dispatch({ type: 'SHIFT_DIMENSION' });
         }

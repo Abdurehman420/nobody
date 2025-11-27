@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { useGame } from '../context/GameContext';
-import { audioManager } from '../engine/audio';
+import { audioSynthesizer } from '../systems/AudioSynthesizer';
 
 const WinampVisualizer = () => {
     const canvasRef = useRef(null);
@@ -11,15 +11,6 @@ const WinampVisualizer = () => {
         if (!canvas) return;
         const ctx = canvas.getContext('2d');
         let animationFrameId;
-
-        // We need to access the audio context from the manager
-        // Since audioManager is a singleton, we might need to expose the analyser
-        // Let's assume we add an analyser to audioManager or just fake it based on game state for now if audio isn't playing music
-        // The prompt says "Audio-Reactive Pulse".
-        // Let's modify audioManager to expose an analyser node if possible, or simulate it.
-        // For now, let's simulate a "fake" visualizer that reacts to game state (Flux/Tick) 
-        // because we might not have a continuous audio stream to analyze yet (just sfx).
-        // Actually, let's make it react to the "Drone".
 
         const render = () => {
             if (!canvas) return;
@@ -51,10 +42,10 @@ const WinampVisualizer = () => {
             ctx.stroke();
 
             // Real Audio Data
-            if (audioManager.analyser) {
-                const bufferLength = audioManager.analyser.frequencyBinCount;
+            if (audioSynthesizer.analyser) {
+                const bufferLength = audioSynthesizer.analyser.frequencyBinCount;
                 const dataArray = new Uint8Array(bufferLength);
-                audioManager.analyser.getByteTimeDomainData(dataArray);
+                audioSynthesizer.analyser.getByteTimeDomainData(dataArray);
 
                 ctx.lineWidth = 2;
                 ctx.strokeStyle = '#00FF00';

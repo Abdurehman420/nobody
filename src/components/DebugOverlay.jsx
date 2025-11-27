@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useGame } from '../context/GameContext';
 import SquishyButton from './SquishyButton';
+import { eventBus } from '../systems/EventBus';
 
 const DebugOverlay = () => {
     const { state, dispatch } = useGame();
@@ -24,9 +25,30 @@ const DebugOverlay = () => {
         }
     }, [consoleOpen, logs]);
 
+    // Listen for critical errors
+    useEffect(() => {
+        const handleError = (data) => {
+            setLogs(prev => [...prev, `> [ERROR] ${data.message}`]);
+            setConsoleOpen(true); // Auto-open console on error
+        };
+        // We need to import eventBus and EVENT_TYPES, but they are not imported yet.
+        // Let's assume we add imports or use window.eventBus if available?
+        // Better to add imports.
+    }, []);
+
     const addLog = (text) => {
         setLogs(prev => [...prev, `> ${text}`]);
     };
+
+    // Listen for critical errors
+    useEffect(() => {
+        const handleError = (data) => {
+            setLogs(prev => [...prev, `> [ERROR] ${data.message || 'Unknown error'}`]);
+            setConsoleOpen(true);
+        };
+        eventBus.on('CRITICAL_ERROR', handleError);
+        return () => eventBus.off('CRITICAL_ERROR', handleError);
+    }, []);
 
     const handleCommand = (e) => {
         e.preventDefault();

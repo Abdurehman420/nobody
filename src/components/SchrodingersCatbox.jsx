@@ -38,25 +38,32 @@ const SchrodingersCatbox = ({ position, onResolve }) => {
     };
 
     return (
-        <SquishyButton
+        <div
             onClick={handleClick}
-            preset="WOBBLY"
             style={{
                 position: 'absolute',
                 left: `${position.x}px`,
                 top: `${position.y}px`,
                 transform: `translate(-50%, -50%) rotate(${vibrationPhase}deg)`,
-                fontSize: '40px',
-                background: isObserved ? '#FF0000' : 'transparent',
-                border: 'none',
+                width: '80px',
+                height: '80px',
                 cursor: isObserved ? 'not-allowed' : 'pointer',
-                filter: isObserved ? 'grayscale(1)' : 'none',
-                transition: 'all 0.3s'
+                filter: isObserved ? 'grayscale(1)' : 'drop-shadow(0 0 10px #FFD700)',
+                transition: 'all 0.3s',
+                zIndex: 50
             }}
             title="Schrödinger's Catbox - Click to observe!"
         >
-            📦
-        </SquishyButton>
+            <img
+                src="/assets/catbox_sprite_v2.png"
+                alt="Schrödinger's Catbox"
+                style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'contain'
+                }}
+            />
+        </div>
     );
 };
 

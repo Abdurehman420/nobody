@@ -46,7 +46,19 @@ void main() {
 
     // Chromatic Aberration
     float aberration = 0.02 * (1.0 + sin(u_time * 0.5));
-    float intensityMod = 1.0 + u_intensity * 0.5;
+    
+    // Cap visual noise density so it doesn't get too chaotic/heavy
+    float intensityMod = 1.0 + min(u_intensity, 2.0) * 0.5;
+    
+    // Color shift based on intensity (Green -> Purple)
+    vec3 baseColorLow = vec3(0.0, 1.0, 0.0); // Neon Green
+    vec3 baseColorHigh = vec3(0.8, 0.0, 1.0); // Neon Purple
+    
+    // Use smoothstep for better control. 
+    // 0.0 to 0.5: Pure Green
+    // 0.5 to 3.5: Gradient to Purple
+    float colorMix = smoothstep(0.5, 3.5, u_intensity);
+    vec3 targetColor = mix(baseColorLow, baseColorHigh, colorMix);
     
     vec3 color = vec3(0.0);
     
@@ -55,24 +67,26 @@ void main() {
     vec2 qR = vec2(snoise(stR + vec2(0.0, t)), snoise(stR + vec2(5.2, 1.3)));
     vec2 rR = vec2(snoise(stR + 1.0*qR + vec2(1.7, 9.2) + 0.15*t), snoise(stR + 1.0*qR + vec2(8.3, 2.8) + 0.126*t));
     float fR = snoise(stR + rR);
-    color.r = mix(vec3(0.0, 0.05, 0.0), vec3(0.0, 1.0, 0.0), clamp(fR*fR*4.0 * intensityMod, 0.0, 1.0)).r;
+    color.r = mix(vec3(0.0, 0.05, 0.0), targetColor, clamp(fR*fR*4.0 * intensityMod, 0.0, 1.0)).r;
 
     // Green channel (Center)
     vec2 stG = st;
     vec2 qG = vec2(snoise(stG + vec2(0.0, t)), snoise(stG + vec2(5.2, 1.3)));
     vec2 rG = vec2(snoise(stG + 1.0*qG + vec2(1.7, 9.2) + 0.15*t), snoise(stG + 1.0*qG + vec2(8.3, 2.8) + 0.126*t));
     float fG = snoise(stG + rG);
-    color.g = mix(vec3(0.0, 0.05, 0.0), vec3(0.0, 1.0, 0.0), clamp(fG*fG*4.0 * intensityMod, 0.0, 1.0)).g;
+    color.g = mix(vec3(0.0, 0.05, 0.0), targetColor, clamp(fG*fG*4.0 * intensityMod, 0.0, 1.0)).g;
 
     // Blue channel
     vec2 stB = st - vec2(aberration, 0.0);
     vec2 qB = vec2(snoise(stB + vec2(0.0, t)), snoise(stB + vec2(5.2, 1.3)));
     vec2 rB = vec2(snoise(stB + 1.0*qB + vec2(1.7, 9.2) + 0.15*t), snoise(stB + 1.0*qB + vec2(8.3, 2.8) + 0.126*t));
     float fB = snoise(stB + rB);
-    color.b = mix(vec3(0.0, 0.05, 0.0), vec3(0.0, 1.0, 0.0), clamp(fB*fB*4.0 * intensityMod, 0.0, 1.0)).b;
+    color.b = mix(vec3(0.0, 0.05, 0.0), targetColor, clamp(fB*fB*4.0 * intensityMod, 0.0, 1.0)).b;
     
-    // Add some "void" purple
-    color = mix(color, vec3(0.1, 0.0, 0.2), clamp(length(q), 0.0, 1.0));
+    // Add some "void" purple (Only at high intensity)
+    // ROOT CAUSE FIX: Disabled void purple entirely to prove green background
+    // float voidMix = clamp((u_intensity - 2.0) / 3.0, 0.0, 1.0);
+    // color = mix(color, vec3(0.1, 0.0, 0.2), clamp(length(q) * voidMix, 0.0, 1.0));
 
     gl_FragColor = vec4(color, 1.0);
 }
