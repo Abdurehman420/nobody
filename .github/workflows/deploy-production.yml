@@ -45,4 +45,4 @@ jobs:
       - name: Deployment Success
         run: |
           echo "✅ Successfully deployed to PRODUCTION"
-          echo "🌐 Site: https://yourdomain.com"
+          echo "🌐 Site:https://nobody-exists-on-purpose.pawnhub.fun/"
