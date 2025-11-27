@@ -1,0 +1,28 @@
+@import './styles/palette.css';
+
+:root {
+    --color-plumbus-pink: #E8A2C8;
+    --color-pale-skin: #F5E6D3;
+    --color-neon-purple: #9400D3;
+    --color-neon-green: #32CD32;
+    --color-neon-cyan: #00FFFF;
+    --color-void-black: #0A0A0A;
+}
+
+body {
+    background-color: var(--color-void-black);
+    color: var(--color-pale-skin);
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    /* Prevent scrollbars */
+    touch-action: none;
+    /* Prevent pull-to-refresh and scrolling on mobile */
+    user-select: none;
+    /* Prevent text selection */
+    -webkit-user-select: none;
+    width: 100vw;
+    height: 100vh;
+}
+
+/* Reset and base styles are handled in palette.css */
